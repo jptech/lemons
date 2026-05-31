@@ -1,0 +1,15 @@
+/* Self-hosted fonts (variable, latin subset). Bundled by Bun — no CDN. */
+@font-face {
+  font-family: "Fredoka";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./fonts/fredoka.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Nunito";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url("./fonts/nunito.woff2") format("woff2");
+}

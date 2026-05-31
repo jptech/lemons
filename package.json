@@ -1,0 +1,20 @@
+{
+  "name": "lemonade-lane",
+  "version": "0.1.0",
+  "description": "Lemonade Lane — a cheerful, casual-but-deep lemonade stand tycoon game.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run scripts/dev.ts",
+    "build": "bun run scripts/build.ts",
+    "preview": "bun run scripts/dev.ts --dist",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "typecheck": "tsc --noEmit",
+    "balance": "bun run scripts/balance.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  }
+}

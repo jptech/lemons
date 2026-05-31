@@ -1,0 +1,21 @@
+# Dependencies & build output
+node_modules/
+dist/
+
+# Logs & OS cruft
+*.log
+.DS_Store
+Thumbs.db
+
+# Env files (keep an example if present)
+.env
+.env.*
+!.env.example
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Claude Code local (per-machine) settings — keep launch.json shared, ignore local
+.claude/settings.local.json
+
+# Note: bun.lock IS committed for reproducible installs.

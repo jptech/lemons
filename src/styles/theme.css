@@ -1,0 +1,96 @@
+/* Lemonade Lane — design tokens. Rename/retheme touches mostly this file. */
+:root {
+  /* --- Palette --- */
+  --c-sun: #ffd43b; /* primary — sunshine yellow */
+  --c-sun-deep: #fcc419; /* pressed/active yellow */
+  --c-cream: #fff9db; /* page background */
+  --c-cream-card: #fffdf3; /* card surface */
+  --c-sky: #4dabf7; /* secondary / info */
+  --c-sky-deep: #339af0;
+  --c-mint: #69db7c; /* positive / money up */
+  --c-mint-deep: #51cf66;
+  --c-coral: #ff8787; /* alert / money down */
+  --c-coral-deep: #ff6b6b;
+  --c-grape: #9775fa; /* accent / achievements */
+  --c-grape-deep: #845ef7;
+  --c-wood: #c99a5b; /* the stand */
+  --c-wood-deep: #a87b3f;
+  --c-ink: #3a2e20; /* text — soft brown-black */
+  --c-ink-soft: #6b5d4a; /* secondary text */
+  --c-line: #efe4c4; /* hairline / borders */
+
+  /* --- Typography --- */
+  --font-display: "Fredoka", "Baloo 2", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Nunito", "Segoe UI", system-ui, sans-serif;
+  --font-num: "Nunito", system-ui, sans-serif;
+
+  /* --- Radii --- */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+
+  /* --- Spacing scale --- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+
+  /* --- Shadows (soft, layered, cartoonish) --- */
+  --shadow-sm: 0 2px 0 rgba(168, 123, 63, 0.18), 0 3px 8px rgba(58, 46, 32, 0.08);
+  --shadow-md: 0 4px 0 rgba(168, 123, 63, 0.18), 0 8px 20px rgba(58, 46, 32, 0.12);
+  --shadow-lg: 0 6px 0 rgba(168, 123, 63, 0.2), 0 16px 36px rgba(58, 46, 32, 0.16);
+
+  /* --- Motion --- */
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --t-fast: 120ms;
+  --t-med: 220ms;
+
+  /* --- Weather scene tints (used by the sim view background) --- */
+  --tint-sunny: #fff3bf;
+  --tint-cloudy: #e9ecef;
+  --tint-rainy: #cfd8e3;
+  --tint-cold: #dbe4ff;
+  --tint-heat: #ffe8cc;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--c-ink);
+  background: var(--c-cream);
+  background-image: radial-gradient(
+      circle at 50% -10%,
+      rgba(255, 224, 102, 0.55),
+      transparent 55%
+    );
+  background-attachment: fixed;
+}
+
+h1,
+h2,
+h3,
+.display {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--c-ink);
+}
+
+.num {
+  font-family: var(--font-num);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.pos {
+  color: var(--c-mint-deep);
+}
+.neg {
+  color: var(--c-coral-deep);
+}
+.muted {
+  color: var(--c-ink-soft);
+}

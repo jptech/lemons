@@ -1,0 +1,5 @@
+# Normalize text files to LF in the repo (consistent across OSes)
+* text=auto eol=lf
+
+# Treat font/binary assets as binary
+*.woff2 binary

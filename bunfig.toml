@@ -1,0 +1,5 @@
+# Lemonade Lane — Bun configuration
+
+[test]
+# Engine tests live in test/; keep them fast and DOM-free.
+root = "."
