@@ -58,6 +58,7 @@ export function renderPlanning(s: AppState): HTMLElement {
     h("div.grid.grid--panels", {}, [
       recipePanel(g),
       stockPanel(g),
+      reputationPanel(g),
       marketingPanel(g),
       equipmentPanel(g),
       staffPanel(g),
@@ -179,6 +180,44 @@ function insightPanel(g: GameState): HTMLElement {
       statBlock("Your price", money(g.recipe.pricePerCup), h("span", { class: priceClass }, ph.text)),
     ]),
   ]);
+}
+
+function facetColor(v: number): string {
+  return v > 62 ? "var(--c-mint)" : v > 38 ? "var(--c-sun)" : "var(--c-coral)";
+}
+
+/** Reputation as four diagnosable facets + a plain-language weak-spot nudge. */
+function reputationPanel(g: GameState): HTMLElement {
+  const facets = sel.repFacetViews(g);
+  const weak = sel.repWeakSpot(g);
+  const rows = facets.map((f) => {
+    const arrow =
+      f.delta > 0.3 ? h("span.rep-facet__arrow.pos", {}, "▲")
+      : f.delta < -0.3 ? h("span.rep-facet__arrow.neg", {}, "▼")
+      : h("span.rep-facet__arrow.muted", {}, "·");
+    return h("div.rep-facet", { title: f.tip }, [
+      h("span.rep-facet__icon", {}, f.icon),
+      h("span.rep-facet__label", {}, f.label),
+      h("div.meter.rep-facet__meter", {}, [
+        h("div.meter__fill", { style: { width: `${Math.round(f.value)}%`, background: facetColor(f.value) } }),
+      ]),
+      h("span.rep-facet__val.num", {}, `${Math.round(f.value)}`),
+      arrow,
+    ]);
+  });
+  const children: Child[] = [
+    h("p.muted.small", {}, "Four sides of your name — each grows from a different thing and pulls a different lever."),
+    h("div.rep-facets", {}, rows),
+  ];
+  if (weak) {
+    children.push(
+      h("div.rep-weakspot", {}, [
+        h("strong", {}, `${weak.icon} Focus on ${weak.label}`),
+        h("span.muted", {}, ` — ${weak.tip}`),
+      ]),
+    );
+  }
+  return panel("🏅", "Reputation", ...children);
 }
 
 function qualityHint(g: GameState): string {

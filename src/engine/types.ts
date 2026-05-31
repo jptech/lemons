@@ -65,6 +65,28 @@ export interface ArchetypeDef {
 }
 
 // ---------------------------------------------------------------------------
+// Reputation facets
+// ---------------------------------------------------------------------------
+/**
+ * Reputation is a small vector, not a single dial. Each facet grows from a
+ * different driver, decays at a different rate, and pushes a different lever:
+ *  - taste   ← recipe quality      → price tolerance (a proven recipe pays)
+ *  - service ← short waits         → customer patience / throughput headroom
+ *  - value   ← price fairness      → demand at a given price
+ *  - buzz    ← marketing + delight → top-of-funnel awareness (decays fastest)
+ * The blended overall (see REP_BLEND) still drives credit, forecast, and the
+ * headline ★, so old call-sites keep working.
+ */
+export interface RepFacets {
+  taste: number; // 0..100
+  service: number; // 0..100
+  value: number; // 0..100
+  buzz: number; // 0..100
+}
+
+export type RepFacetId = keyof RepFacets;
+
+// ---------------------------------------------------------------------------
 // Locations, equipment, staff
 // ---------------------------------------------------------------------------
 export interface LocationDef {
@@ -236,6 +258,8 @@ export interface DayResult {
   satDrivers: { quality: number; price: number; wait: number };
   reputationStart: number;
   reputationEnd: number;
+  /** Effective facets (0.4 global + 0.6 local) at end of day, for trend arrows. */
+  repFacetsEnd: RepFacets;
   regularsEnd: number;
   newGoals: string[];
   newAchievements: string[];
@@ -255,8 +279,10 @@ export interface GameState {
   cash: number;
   debt: number;
 
-  reputationGlobal: number; // 0..100
-  locationRep: Record<string, number>; // 0..100 per location
+  reputationGlobal: number; // 0..100 — blended overall (cached from repFacets)
+  locationRep: Record<string, number>; // 0..100 per location — blended overall (cached)
+  repFacets: RepFacets; // global, per-facet (source of truth for reputationGlobal)
+  locationRepFacets: Record<string, RepFacets>; // per-location facets (source of locationRep)
   regularsPool: number; // grown by good service, sticky baseline traffic
 
   currentLocationId: string;

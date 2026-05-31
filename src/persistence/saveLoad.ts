@@ -31,6 +31,20 @@ const MIGRATIONS: Record<number, (g: GameState) => GameState> = {
       .map((lot) => ({ ...lot, qty: Math.round(lot.qty) }))
       .filter((lot) => lot.qty > 0),
   }),
+  // 4 -> 5: split the single reputation scalar into four equal facets (neutral —
+  // a loaded save plays identically next day, then the facets differentiate).
+  4: (g) => {
+    const fromScalar = (v: number) => ({ taste: v, service: v, value: v, buzz: v });
+    const locFacets: Record<string, ReturnType<typeof fromScalar>> = {};
+    for (const [id, v] of Object.entries(g.locationRep ?? {})) {
+      locFacets[id] = fromScalar(v as number);
+    }
+    return {
+      ...g,
+      repFacets: g.repFacets ?? fromScalar(g.reputationGlobal ?? 10),
+      locationRepFacets: g.locationRepFacets ?? locFacets,
+    };
+  },
 };
 
 function migrate(game: GameState, fromVersion: number): GameState {

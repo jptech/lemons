@@ -4,7 +4,16 @@ import { EVENT_BY_ID } from "../data/events";
 import { GOALS } from "../data/goals";
 import { ACHIEVEMENTS } from "../data/achievements";
 import { Rng } from "./rng";
-import { creditLimit, derive, effectiveReputation, forecastConfidence, type Derived } from "./derive";
+import {
+  blendRep,
+  creditLimit,
+  derive,
+  effectiveFacets,
+  effectiveReputation,
+  forecastConfidence,
+  uniformFacets,
+  type Derived,
+} from "./derive";
 import {
   arrivalCurveWeight,
   clamp,
@@ -30,6 +39,7 @@ import type {
   InventoryLot,
   ItemId,
   LocationDef,
+  RepFacets,
   SimEvent,
   SimSnapshot,
   StationView,
@@ -109,6 +119,9 @@ export class DaySim {
   private readonly sumWeights: number;
   private readonly tolerance: number;
   private readonly effRep: number;
+  private readonly effFacets: RepFacets;
+  /** Service-facet patience tilt (>1 = more patient), neutral at uniformity. */
+  private readonly servicePatienceMult: number;
 
   // working state
   private readonly inv: InventoryLot[];
@@ -154,6 +167,13 @@ export class DaySim {
     this.location = LOCATION_BY_ID[state.currentLocationId]!;
     this.openMinutes = this.location.openMinutes;
     this.effRep = effectiveReputation(state);
+    this.effFacets = effectiveFacets(state);
+    // Service above the overall makes customers a bit more patient (and vice
+    // versa). Neutral when facets are uniform.
+    this.servicePatienceMult = Math.max(
+      0.5,
+      1 + (TUNING.SERVICE_PATIENCE_TILT * (this.effFacets.service - this.effRep)) / 100,
+    );
 
     const weather = state.weatherToday;
     this.tolerance = priceTolerance(
@@ -161,6 +181,7 @@ export class DaySim {
       this.effRep,
       weather,
       state.qualityScoreEMA,
+      this.effFacets.taste,
     );
 
     const event = state.activeEventId ? EVENT_BY_ID[state.activeEventId] : undefined;
@@ -169,6 +190,8 @@ export class DaySim {
       weather,
       dayOfWeek: this.dayOfWeek(),
       effectiveRep: this.effRep,
+      buzzEff: this.effFacets.buzz,
+      valueEff: this.effFacets.value,
       marketingSpend: state.marketingSpend,
       marketingFloor: this.derived.marketingFloor,
       price: state.recipe.pricePerCup,
@@ -307,6 +330,7 @@ export class DaySim {
       Math.round(
         TUNING.PATIENCE_BASE *
           this.derived.patienceMult *
+          this.servicePatienceMult *
           arch.patienceMult *
           this.rng.uniform(0.7, 1.3),
       ),
@@ -594,27 +618,55 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
   const profit =
     d.revenue + d.tips - rent - wages - marketing - interest - stock - equipment;
 
-  // ---- Reputation (sticky, slow) ----
+  // ---- Reputation facets (taste / service / value / buzz) ----
+  // Each facet eases toward its own daily signal and decays at its own rate, so
+  // a business develops a distinct reputational profile. The blended overall
+  // (REP_BLEND) is cached back into reputationGlobal/locationRep for everything
+  // that reads a single ★ (credit, forecast, stats, UI).
   const repStartLocal = prev.locationRep[prev.currentLocationId] ?? 0;
   const repStartEff = d.effRep;
-  let newGlobal = prev.reputationGlobal;
-  let newLocal = repStartLocal;
+  const prevGF: RepFacets = prev.repFacets ?? uniformFacets(prev.reputationGlobal);
+  const prevLF: RepFacets =
+    prev.locationRepFacets?.[prev.currentLocationId] ?? uniformFacets(repStartLocal);
+  let newGF: RepFacets = prevGF;
+  let newLF: RepFacets = prevLF;
+
+  const easeFacet = (cur: number, target: number, ease: number, decay: number, boost = 0) =>
+    clamp((cur + ease * (target - cur) + boost) * (1 - decay), 0, 100);
+
   if (d.served > 0) {
-    // Reputation tracks the experience of customers you actually SERVED, with a
-    // modest penalty for turning people away (a long line dents your name).
     const lost = d.balked + d.reneged;
     const lossRate = lost / (d.served + lost);
-    const target = clamp(100 * (d.servedSatSum / d.served) - TUNING.LOSS_REP_PENALTY * lossRate, 0, 100);
-    const mkt = marketingRepBoost(marketing) + (event?.effect.repDelta ?? 0);
-    newLocal = clamp((newLocal + TUNING.REP_EASE * (target - newLocal)) * (1 - TUNING.REP_DECAY), 0, 100);
-    newGlobal = clamp(
-      (newGlobal + TUNING.GLOBAL_REP_EASE_FACTOR * TUNING.REP_EASE * (target - newGlobal) + mkt) * (1 - TUNING.REP_DECAY),
-      0,
-      100,
-    );
+    // Per-facet daily targets, each in 0..100.
+    const tasteT = clamp(100 * (d.qualSum / d.served), 0, 100);
+    const valueT = clamp(100 * (d.fairSum / d.served), 0, 100);
+    const serviceT = clamp(100 * (d.waitSum / d.served) - TUNING.LOSS_REP_PENALTY * lossRate, 0, 100);
+    const buzzT = clamp(100 * (d.servedSatSum / d.served), 0, 100);
+    // Buzz boosts: marketing reach (global awareness) + organic word-of-mouth.
+    const mktBoost = marketingRepBoost(marketing) + (event?.effect.repDelta ?? 0);
+    const womBoost = TUNING.BUZZ_WOM_GAIN * (d.delighted / d.served);
+    const dF = TUNING.REP_DECAY_FACET;
+    const gEase = TUNING.GLOBAL_REP_EASE_FACTOR * TUNING.REP_EASE;
+    const lEase = TUNING.REP_EASE;
+    newLF = {
+      taste: easeFacet(prevLF.taste, tasteT, lEase, dF.taste),
+      service: easeFacet(prevLF.service, serviceT, lEase, dF.service),
+      value: easeFacet(prevLF.value, valueT, lEase, dF.value),
+      buzz: easeFacet(prevLF.buzz, buzzT, lEase, dF.buzz, womBoost),
+    };
+    newGF = {
+      taste: easeFacet(prevGF.taste, tasteT, gEase, dF.taste),
+      service: easeFacet(prevGF.service, serviceT, gEase, dF.service),
+      value: easeFacet(prevGF.value, valueT, gEase, dF.value),
+      buzz: easeFacet(prevGF.buzz, buzzT, gEase, dF.buzz, mktBoost + womBoost),
+    };
   } else if (event?.effect.repDelta) {
-    newGlobal = clamp(newGlobal + event.effect.repDelta, 0, 100);
+    // No sales — a pure reputational event lands on awareness (Buzz).
+    newGF = { ...prevGF, buzz: clamp(prevGF.buzz + event.effect.repDelta, 0, 100) };
   }
+
+  const newGlobal = blendRep(newGF);
+  const newLocal = blendRep(newLF);
 
   // ---- Quality EMA + recipe feedback (only when we actually served) ----
   let qualityEMA = prev.qualityScoreEMA;
@@ -726,6 +778,12 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
     },
     reputationStart: repStartEff,
     reputationEnd: 0.4 * newGlobal + 0.6 * newLocal,
+    repFacetsEnd: {
+      taste: 0.4 * newGF.taste + 0.6 * newLF.taste,
+      service: 0.4 * newGF.service + 0.6 * newLF.service,
+      value: 0.4 * newGF.value + 0.6 * newLF.value,
+      buzz: 0.4 * newGF.buzz + 0.6 * newLF.buzz,
+    },
     regularsEnd: regulars,
     newGoals: [],
     newAchievements: [],
@@ -744,6 +802,8 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
     debt,
     reputationGlobal: newGlobal,
     locationRep: { ...prev.locationRep, [prev.currentLocationId]: newLocal },
+    repFacets: newGF,
+    locationRepFacets: { ...prev.locationRepFacets, [prev.currentLocationId]: newLF },
     regularsPool: regulars,
     inventory: nextInv,
     qualityScoreEMA: qualityEMA,

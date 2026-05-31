@@ -43,6 +43,8 @@ export function newGame(seed: number, mode: GameMode = "campaign"): GameState {
     debt: 0,
     reputationGlobal: 10,
     locationRep: { [STARTER_LOCATION_ID]: 10 },
+    repFacets: { taste: 10, service: 10, value: 10, buzz: 10 },
+    locationRepFacets: { [STARTER_LOCATION_ID]: { taste: 10, service: 10, value: 10, buzz: 10 } },
     regularsPool: 0,
     currentLocationId: STARTER_LOCATION_ID,
     unlockedLocationIds: [STARTER_LOCATION_ID],

@@ -309,6 +309,51 @@
   transition: width var(--t-med) var(--ease-bounce);
 }
 
+/* ---- Reputation facets ---- */
+.rep-facets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+.rep-facet {
+  display: grid;
+  grid-template-columns: 1.4rem 4.4rem 1fr 1.9rem 1rem;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.rep-facet__icon {
+  font-size: 1.05rem;
+  text-align: center;
+}
+.rep-facet__label {
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.rep-facet__meter {
+  height: 10px;
+}
+.rep-facet__val {
+  text-align: right;
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+.rep-facet__arrow {
+  text-align: center;
+  font-size: 0.75rem;
+}
+.rep-facet__arrow.pos { color: var(--c-mint); }
+.rep-facet__arrow.neg { color: var(--c-coral); }
+.rep-weakspot {
+  margin-top: var(--sp-2);
+  padding: var(--sp-2);
+  background: var(--c-cream);
+  border: 2px dashed var(--c-line);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
 /* ---- Sliders ---- */
 .slider {
   display: block;

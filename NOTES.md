@@ -49,9 +49,13 @@ Modes: **Campaign** (goal ladder, can continue endless) and **Sandbox**.
 - **Recipe** — parts of lemon/sugar/water/ice + price. Quality = distance from a
   hidden, weather-dependent ideal. Persistent **recipe feedback** (EMA) guides
   ingredient tweaks ("more lemon, less ice") with an Apply button.
-- **Reputation** — global + location-sticky (EMA toward satisfaction, slow decay).
-  Drives demand and price tolerance. **Regulars pool** = sticky baseline traffic
-  grown by delight.
+- **Reputation** — a **4-facet vector** (Taste / Service / Value / Buzz), global +
+  location-sticky, each eased toward its own daily signal with its own decay
+  (Buzz fades fast, Taste compounds). Blended (`REP_BLEND`) into the cached
+  overall ★ that drives credit/forecast/UI. Each facet tilts a different lever
+  vs the overall — Taste→price tolerance, Buzz/Value→demand, Service→patience —
+  neutral at uniformity (a balanced business behaves like the old single dial).
+  **Regulars pool** = sticky baseline traffic grown by delight.
 - **Equipment** — upgrade **lines** with stacking **levels**, gated by
   location/reputation/day prerequisites (see below).
 - **Staff** — up to 3; each adds a service station; daily wages.
@@ -198,3 +202,21 @@ Tagged by effort. Pulled from the theme review; trim/expand as we go.
   effect smoothly. Bumped tiers (Barista +40%/+25%, Manager +90%/+50%) and the
   Staff panel now spells out each tier's perks. Verified: at busy/capacity-bound
   spots a Manager crew serves ~14–53% more than Helpers. Regression test added.
+
+## Depth Phase 1 (see DEPTH_ROADMAP.md)
+
+- **Step A — multi-facet reputation.** Split the single rep dial into four facets
+  (Taste/Service/Value/Buzz) stored on `GameState.repFacets` +
+  `locationRepFacets`, each eased toward its own daily target (taste←quality,
+  value←fairness, service←wait−loss, buzz←satisfaction+marketing+word-of-mouth)
+  with its own decay (`REP_DECAY_FACET`: buzz fast, taste slow). The blended
+  overall (`REP_BLEND`) is cached back into `reputationGlobal`/`locationRep`, so
+  credit/forecast/stats/UI are untouched. Economy "tilts" each lever by a facet's
+  divergence from the overall — Taste→`priceTolerance`, Buzz/Value→
+  `expectedCustomers`, Service→patience — all **neutral at uniformity** (a
+  balanced business reproduces the old single-rep math; proven by tests + the
+  6/6 balance run). UI: a Reputation panel (4 bars + trend arrows + a
+  plain-language weak-spot nudge once facets diverge), and the recap's driver
+  bars relabeled ⭐Taste / 💵Value / ⚡Service ("What built your reputation").
+  Migration 4→5 splits the old scalar into equal facets. Regression tests in
+  `test/reputation.test.ts`.

@@ -5,7 +5,7 @@
 import type { Condition, ItemId } from "./types";
 
 export const TUNING = {
-  SCHEMA_VERSION: 4,
+  SCHEMA_VERSION: 5,
   STARTING_CASH: 80,
 
   // --- Day structure ---
@@ -54,6 +54,29 @@ export const TUNING = {
   REP_DECAY: 0.01,
   GLOBAL_REP_EASE_FACTOR: 0.6, // global rep eases slower than location rep
   LOSS_REP_PENALTY: 18, // reputation points shaved per 100% loss rate
+
+  // --- Reputation facets (taste / service / value / buzz) ---
+  // Blend weights → the overall ★ (sum to 1). A balanced operator with equal
+  // facets reproduces the old single-number behavior closely.
+  REP_BLEND: { taste: 0.35, service: 0.25, value: 0.25, buzz: 0.15 } as Record<
+    "taste" | "service" | "value" | "buzz",
+    number
+  >,
+  // Per-facet overnight decay. Buzz fades fast (awareness must be fed); taste
+  // compounds (a good recipe pays for weeks).
+  REP_DECAY_FACET: { taste: 0.008, service: 0.015, value: 0.015, buzz: 0.04 } as Record<
+    "taste" | "service" | "value" | "buzz",
+    number
+  >,
+  // Word-of-mouth: delighted customers nudge Buzz upward (organic awareness).
+  BUZZ_WOM_GAIN: 14, // × (delighted / served) eased into Buzz
+  // Economy "tilts": how far a facet diverging from the overall shifts its lever.
+  // Each multiplies (effFacet − effOverall)/100, so they are NEUTRAL at uniformity
+  // (a balanced business behaves exactly like the old single-rep model).
+  TASTE_TOL_TILT: 0.6, // taste above overall → more price tolerance
+  BUZZ_DEMAND_TILT: 0.7, // buzz above overall → more foot traffic
+  VALUE_DEMAND_TILT: 0.5, // value above overall → better price acceptance
+  SERVICE_PATIENCE_TILT: 0.6, // service above overall → more patient customers
   PRICE_TOL_REP_SPAN: 240, // rep/this added as price-tolerance fraction (lower = less)
   QUALITY_EMA_EASE: 0.2,
   FEEDBACK_EASE: 0.34, // how fast saved recipe feedback adapts

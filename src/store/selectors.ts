@@ -10,8 +10,11 @@ import {
   recipeQuality,
   expectedCustomers,
   TUNING,
+  effectiveFacets,
+  uniformFacets,
   type GameState,
   type ItemId,
+  type RepFacetId,
 } from "../engine";
 import { forecastSigma } from "../engine/economy";
 import { LOCATION_BY_ID } from "../data/locations";
@@ -52,8 +55,9 @@ export function forecastWeather(g: GameState) {
 export function projectedCustomers(g: GameState): number {
   const loc = currentLocation(g);
   const effRep = effectiveReputation(g);
+  const facets = effectiveFacets(g);
   const weather = forecastWeather(g);
-  const tol = priceTolerance(loc, effRep, weather, g.qualityScoreEMA);
+  const tol = priceTolerance(loc, effRep, weather, g.qualityScoreEMA, facets.taste);
   const event = g.activeEventId ? EVENT_BY_ID[g.activeEventId] : undefined;
   return Math.round(
     expectedCustomers({
@@ -61,6 +65,8 @@ export function projectedCustomers(g: GameState): number {
       weather,
       dayOfWeek: (g.day - 1) % 7,
       effectiveRep: effRep,
+      buzzEff: facets.buzz,
+      valueEff: facets.value,
       marketingSpend: g.marketingSpend,
       marketingFloor: derive(g).marketingFloor,
       price: g.recipe.pricePerCup,
@@ -82,7 +88,64 @@ export function priceToleranceHint(g: GameState): number {
     effectiveReputation(g),
     forecastWeather(g),
     g.qualityScoreEMA,
+    effectiveFacets(g).taste,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Reputation facets — player-facing readout + weak-spot diagnosis
+// ---------------------------------------------------------------------------
+export interface RepFacetView {
+  id: RepFacetId;
+  label: string;
+  icon: string;
+  value: number; // effective 0..100
+  /** Change vs the prior day's effective facet (for a trend arrow). */
+  delta: number;
+  /** One-line plain-language "what this does / how to improve". */
+  tip: string;
+}
+
+const FACET_META: Record<RepFacetId, { label: string; icon: string; tip: string }> = {
+  taste: { label: "Taste", icon: "⭐", tip: "Dial in your recipe for the weather — lets you charge more." },
+  service: { label: "Service", icon: "⚡", tip: "Cut the wait — add a station or faster staff so fewer walk off." },
+  value: { label: "Value", icon: "💵", tip: "Ease your price — overcharging sours how fair you feel." },
+  buzz: { label: "Buzz", icon: "📣", tip: "Market and delight customers — awareness fades fast if you coast." },
+};
+
+const FACET_ORDER: RepFacetId[] = ["taste", "service", "value", "buzz"];
+
+/** The four effective facets with trend deltas, for the reputation card. */
+export function repFacetViews(g: GameState): RepFacetView[] {
+  const cur = effectiveFacets(g); // == end of the last day played
+  // Trend = how each facet moved on the MOST RECENT day: compare the last day's
+  // end (≈ cur) against the day before it (or the run's starting rep on day 2).
+  const n = g.history.length;
+  const last = n ? g.history[n - 1] : undefined;
+  const prev =
+    g.history[n - 2]?.repFacetsEnd ?? (last ? uniformFacets(last.reputationStart) : undefined);
+  return FACET_ORDER.map((id) => ({
+    id,
+    label: FACET_META[id].label,
+    icon: FACET_META[id].icon,
+    value: cur[id],
+    delta: prev ? cur[id] - prev[id] : 0,
+    tip: FACET_META[id].tip,
+  }));
+}
+
+/**
+ * The facet most worth improving: the lowest one, but only flagged once there's
+ * a meaningful spread (so we don't nag a balanced operator). Returns null when
+ * the business is evenly developed.
+ */
+export function repWeakSpot(g: GameState): RepFacetView | null {
+  if (g.stats.daysPlayed < 2) return null;
+  const views = repFacetViews(g);
+  const lowest = views.reduce((a, b) => (b.value < a.value ? b : a));
+  const highest = views.reduce((a, b) => (b.value > a.value ? b : a));
+  if (highest.value - lowest.value < 8) return null; // evenly developed
+  return lowest;
 }
 
 /** Ice you can count on across the whole day = on hand + ice-maker output. */

@@ -213,16 +213,16 @@ function reviewsPanel(r: DayResult): HTMLElement {
     tip: `${i + 1}★: <strong>${count}</strong> reviews`,
   }));
   const drivers = [
-    { label: "🍋 Taste", value: Math.round(r.satDrivers.quality * 100), color: C.sun, tip: `Taste score: <strong>${pct(r.satDrivers.quality)}</strong>` },
-    { label: "💵 Price", value: Math.round(r.satDrivers.price * 100), color: C.mint, tip: `Price fairness: <strong>${pct(r.satDrivers.price)}</strong>` },
-    { label: "⏱️ Wait", value: Math.round(r.satDrivers.wait * 100), color: C.sky, tip: `Wait score: <strong>${pct(r.satDrivers.wait)}</strong>` },
+    { label: "⭐ Taste", value: Math.round(r.satDrivers.quality * 100), color: C.sun, tip: `Taste — builds your <strong>Taste</strong> reputation: <strong>${pct(r.satDrivers.quality)}</strong>` },
+    { label: "💵 Value", value: Math.round(r.satDrivers.price * 100), color: C.mint, tip: `Price fairness — builds <strong>Value</strong>: <strong>${pct(r.satDrivers.price)}</strong>` },
+    { label: "⚡ Service", value: Math.round(r.satDrivers.wait * 100), color: C.sky, tip: `Wait score — builds <strong>Service</strong>: <strong>${pct(r.satDrivers.wait)}</strong>` },
   ];
   return panel(
     "⭐",
     "Your reviews",
     h("div.grid.grid--charts", {}, [
       barChart(starBars, { title: "Star ratings", yFormat: (n) => String(Math.round(n)) }),
-      barChart(drivers, { title: "What drove satisfaction", yFormat: (n) => `${Math.round(n)}%`, height: 200 }),
+      barChart(drivers, { title: "What built your reputation", yFormat: (n) => `${Math.round(n)}%`, height: 200 }),
     ]),
     feedbackLine(r),
   );

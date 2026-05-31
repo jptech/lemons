@@ -35,6 +35,9 @@ export {
   creditLimit,
   effectiveReputation,
   forecastConfidence,
+  blendRep,
+  uniformFacets,
+  effectiveFacets,
 } from "./derive";
 export type { EquipmentStatus } from "./reducers";
 

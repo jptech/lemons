@@ -1,5 +1,5 @@
 import { EQUIPMENT_BY_ID } from "../data/equipment";
-import type { EquipmentDef, GameState } from "./types";
+import type { EquipmentDef, GameState, RepFacets } from "./types";
 import { TUNING } from "./tuning";
 
 /**
@@ -111,6 +111,36 @@ export function creditLimit(state: GameState): number {
 export function effectiveReputation(state: GameState): number {
   const local = state.locationRep[state.currentLocationId] ?? 0;
   return 0.4 * state.reputationGlobal + 0.6 * local;
+}
+
+/** Weighted blend of a facet vector → the overall ★ (0..100). */
+export function blendRep(f: RepFacets): number {
+  const w = TUNING.REP_BLEND;
+  return w.taste * f.taste + w.service * f.service + w.value * f.value + w.buzz * f.buzz;
+}
+
+/** A neutral facet vector seeded at a single value (for new games / migration). */
+export function uniformFacets(v: number): RepFacets {
+  return { taste: v, service: v, value: v, buzz: v };
+}
+
+/**
+ * Effective facets the customer feels = 0.4 global + 0.6 local (same blend the
+ * overall reputation uses), so a facet is "effective" exactly like the scalar
+ * rep. Falls back to the cached scalar rep if facets are missing (old saves
+ * mid-migration) so callers never see NaN.
+ */
+export function effectiveFacets(state: GameState): RepFacets {
+  const g = state.repFacets ?? uniformFacets(state.reputationGlobal);
+  const l =
+    state.locationRepFacets?.[state.currentLocationId] ??
+    uniformFacets(state.locationRep[state.currentLocationId] ?? 0);
+  return {
+    taste: 0.4 * g.taste + 0.6 * l.taste,
+    service: 0.4 * g.service + 0.6 * l.service,
+    value: 0.4 * g.value + 0.6 * l.value,
+    buzz: 0.4 * g.buzz + 0.6 * l.buzz,
+  };
 }
 
 /**

@@ -96,18 +96,25 @@ export function recipeQuality(
 // Pricing
 // ---------------------------------------------------------------------------
 
-/** Price tolerance ($) given location, reputation, weather, recipe track record. */
+/**
+ * Price tolerance ($) given location, reputation, weather, recipe track record.
+ * `tasteEff` (the Taste facet) tilts tolerance around the overall rep: a proven
+ * recipe lets you charge up. Defaults to `effectiveRep` → no tilt (legacy/uniform).
+ */
 export function priceTolerance(
   location: LocationDef,
   effectiveRep: number,
   weather: WeatherDay,
   qualityScoreEMA: number,
+  tasteEff: number = effectiveRep,
 ): number {
+  const tasteTilt = 1 + (TUNING.TASTE_TOL_TILT * (tasteEff - effectiveRep)) / 100;
   return (
     location.priceToleranceBase *
     (1 + effectiveRep / TUNING.PRICE_TOL_REP_SPAN) *
     weatherPriceMult(weather) *
-    (1 + 0.1 * (qualityScoreEMA - 0.5))
+    (1 + 0.1 * (qualityScoreEMA - 0.5)) *
+    tasteTilt
   );
 }
 
@@ -158,6 +165,10 @@ export interface DemandInputs {
   tolerance: number;
   regularsPool: number;
   eventTrafficMult: number;
+  /** Effective Buzz facet (awareness). Defaults to effectiveRep → no tilt. */
+  buzzEff?: number;
+  /** Effective Value facet (price-acceptance). Defaults to effectiveRep → no tilt. */
+  valueEff?: number;
 }
 
 /** Expected number of would-be customers for the whole day. */
@@ -165,12 +176,18 @@ export function expectedCustomers(d: DemandInputs): number {
   const repMult =
     TUNING.REP_DEMAND_FLOOR + (TUNING.REP_DEMAND_SPAN * d.effectiveRep) / 100;
   const market = 1 + marketingShortTerm(d.marketingSpend, d.marketingFloor);
+  // Facet tilts around the overall rep (neutral when facets are uniform):
+  // Buzz lifts top-of-funnel traffic; Value improves price acceptance.
+  const buzzMult = 1 + (TUNING.BUZZ_DEMAND_TILT * ((d.buzzEff ?? d.effectiveRep) - d.effectiveRep)) / 100;
+  const valueMult = 1 + (TUNING.VALUE_DEMAND_TILT * ((d.valueEff ?? d.effectiveRep) - d.effectiveRep)) / 100;
   const base =
     d.location.baseTraffic *
     weatherDemandMult(d.weather, d.location.weatherVariance) *
     (TUNING.DOW_MULT[d.dayOfWeek] ?? 1) *
     repMult *
     market *
+    Math.max(0, buzzMult) *
+    Math.max(0, valueMult) *
     priceDemandMult(d.price, d.tolerance) *
     d.eventTrafficMult;
   // Regulars show up on top, only lightly weather-sensitive.
