@@ -45,6 +45,12 @@ const MIGRATIONS: Record<number, (g: GameState) => GameState> = {
       locationRepFacets: g.locationRepFacets ?? locFacets,
     };
   },
+  // 5 -> 6: introduce the supplier market at a neutral index (prices start flat;
+  // existing lots are implicitly standard grade).
+  5: (g) => ({
+    ...g,
+    supplier: g.supplier ?? { priceIndex: { lemon: 1, sugar: 1, ice: 1, cup: 1 } },
+  }),
 };
 
 function migrate(game: GameState, fromVersion: number): GameState {

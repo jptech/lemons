@@ -5,7 +5,7 @@
 import type { Condition, ItemId } from "./types";
 
 export const TUNING = {
-  SCHEMA_VERSION: 5,
+  SCHEMA_VERSION: 6,
   STARTING_CASH: 80,
 
   // --- Day structure ---
@@ -122,6 +122,23 @@ export const TUNING = {
   // --- Item economics ---
   ITEM_COST: { lemon: 0.2, sugar: 0.1, ice: 0.08, cup: 0.03 } as Record<ItemId, number>,
   SLOT_COST: { lemon: 0.1, sugar: 0.05, ice: 0.2, cup: 0.02 } as Record<ItemId, number>,
+
+  // --- Supplier market (mean-reverting daily price walk) ---
+  SUPPLIER_REVERSION: 0.25, // fraction of the gap back toward 1.0 each day
+  SUPPLIER_VOL: { lemon: 0.14, sugar: 0.06, ice: 0.05, cup: 0.02 } as Record<ItemId, number>,
+  SUPPLIER_MIN: 0.7, // price index floor
+  SUPPLIER_MAX: 1.5, // price index ceiling
+  // Per-unit premium-grade cost multiplier (only taste solids gain quality).
+  GRADE_COST_MULT: { lemon: 1.8, sugar: 1.6 } as Partial<Record<ItemId, number>>,
+  // Max additive recipe-quality bonus when 100% of taste solids are premium.
+  GRADE_QUALITY_BONUS: 0.1,
+  // Bulk discounts: buying ≥ `min` units in one purchase scales the unit price.
+  // Listed high→low; first match wins.
+  BULK_TIERS: [
+    { min: 250, mult: 0.82 },
+    { min: 120, mult: 0.88 },
+    { min: 50, mult: 0.94 },
+  ] as const,
 
   // Sun .. Sat
   DOW_MULT: [1.25, 0.85, 0.9, 1.0, 1.05, 1.2, 1.35] as const,

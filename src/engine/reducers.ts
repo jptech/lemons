@@ -5,17 +5,27 @@ import { STAFF_BY_TIER } from "../data/staff";
 import { creditLimit, derive, usedStorage } from "./derive";
 import { TUNING } from "./tuning";
 import { clamp } from "./economy";
+import { bulkFactor, unitPrice } from "./supplier";
 import type {
   GameState,
   InventoryLot,
+  ItemGrade,
   ItemId,
   Recipe,
   StaffRole,
 } from "./types";
 
-/** Effective per-unit buy price for an item today (events can spike lemons). */
-export function itemBuyPrice(state: GameState, item: ItemId): number {
-  let unit = TUNING.ITEM_COST[item];
+/**
+ * Effective per-unit sticker price for an item/grade today: the supplier market
+ * index × base × grade premium, with events still able to spike lemons. Does NOT
+ * include the bulk discount (which depends on the purchase quantity).
+ */
+export function itemBuyPrice(
+  state: GameState,
+  item: ItemId,
+  grade: ItemGrade = "standard",
+): number {
+  let unit = unitPrice(state.supplier, item, grade);
   if (item === "lemon" && state.activeEventId) {
     const fx = EVENT_BY_ID[state.activeEventId]?.effect;
     if (fx?.lemonPriceMult) unit *= fx.lemonPriceMult;
@@ -40,17 +50,23 @@ export function setRecipe(state: GameState, patch: Partial<Recipe>): GameState {
   return { ...state, recipe };
 }
 
-/** Buy `qty` of an item, respecting cash and storage capacity. */
-export function buyStock(state: GameState, item: ItemId, qty: number): GameState {
+/** Buy `qty` of an item/grade, respecting cash and storage capacity. Larger
+ *  single purchases earn a bulk discount on the unit price. */
+export function buyStock(
+  state: GameState,
+  item: ItemId,
+  qty: number,
+  grade: ItemGrade = "standard",
+): GameState {
   const n = Math.floor(qty);
   if (n <= 0) return state;
-  const unit = itemBuyPrice(state, item);
+  const unit = itemBuyPrice(state, item, grade) * bulkFactor(n);
   const cost = unit * n;
   if (cost > state.cash) return state;
   const cap = derive(state).storageCapacity;
   if (usedStorage(state) + n * TUNING.SLOT_COST[item] > cap + 1e-9) return state;
 
-  const inventory = mergeLot(state.inventory, item, n);
+  const inventory = mergeLot(state.inventory, item, n, grade);
   return {
     ...state,
     cash: round2(state.cash - cost),
@@ -59,9 +75,10 @@ export function buyStock(state: GameState, item: ItemId, qty: number): GameState
   };
 }
 
-/** Largest quantity of an item affordable AND fit-able right now. */
-export function maxBuyable(state: GameState, item: ItemId): number {
-  const unit = itemBuyPrice(state, item);
+/** Largest quantity of an item/grade affordable AND fit-able right now. Uses the
+ *  sticker price (no bulk) as a conservative cash bound. */
+export function maxBuyable(state: GameState, item: ItemId, grade: ItemGrade = "standard"): number {
+  const unit = itemBuyPrice(state, item, grade);
   const byCash = unit > 0 ? Math.floor(state.cash / unit) : 0;
   const cap = derive(state).storageCapacity;
   const slot = TUNING.SLOT_COST[item];
@@ -219,11 +236,19 @@ export function repayLoan(state: GameState, amount: number): GameState {
 }
 
 // ---------------------------------------------------------------------------
-function mergeLot(inv: InventoryLot[], item: ItemId, qty: number): InventoryLot[] {
+function mergeLot(
+  inv: InventoryLot[],
+  item: ItemId,
+  qty: number,
+  grade: ItemGrade = "standard",
+): InventoryLot[] {
   const out = inv.map((l) => ({ ...l }));
-  const fresh = out.find((l) => l.item === item && l.ageDays === 0);
+  // Standard and premium are distinct lots (different quality); merge like-grade.
+  const fresh = out.find(
+    (l) => l.item === item && l.ageDays === 0 && (l.grade ?? "standard") === grade,
+  );
   if (fresh) fresh.qty += qty;
-  else out.push({ item, qty, ageDays: 0 });
+  else out.push(grade === "premium" ? { item, qty, ageDays: 0, grade } : { item, qty, ageDays: 0 });
   return out;
 }
 

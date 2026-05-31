@@ -27,6 +27,7 @@ import {
   type DayResult,
   type GameMode,
   type GameState,
+  type ItemGrade,
   type ItemId,
   type Recipe,
   type StaffRole,
@@ -101,6 +102,10 @@ export const actions = {
   toast(msg: string | null) {
     store.setState((s) => ({ ...s, toast: msg }));
   },
+  /** Force a re-render after a UI-only state change (no game mutation). */
+  refresh() {
+    store.setState((s) => ({ ...s }));
+  },
 
   // --- settings ---
   openSettings() {
@@ -120,8 +125,10 @@ export const actions = {
   // --- planning reducers ---
   setPrice: (p: number) => patchGame((g) => setPrice(g, p)),
   setRecipe: (patch: Partial<Recipe>) => patchGame((g) => setRecipe(g, patch)),
-  buyStock: (item: ItemId, qty: number) => patchGame((g) => buyStock(g, item, qty)),
-  buyMax: (item: ItemId) => patchGame((g) => buyStock(g, item, maxBuyable(g, item))),
+  buyStock: (item: ItemId, qty: number, grade: ItemGrade = "standard") =>
+    patchGame((g) => buyStock(g, item, qty, grade)),
+  buyMax: (item: ItemId, grade: ItemGrade = "standard") =>
+    patchGame((g) => buyStock(g, item, maxBuyable(g, item, grade), grade)),
   discardStock: (item: ItemId, qty: number) => patchGame((g) => discardStock(g, item, qty)),
   setMarketing: (spend: number) => patchGame((g) => setMarketing(g, spend)),
   buyEquipment: (id: string) => patchGame((g) => buyEquipment(g, id)),

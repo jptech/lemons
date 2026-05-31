@@ -9,10 +9,22 @@
 export type ItemId = "lemon" | "sugar" | "ice" | "cup";
 export const STOCK_ITEMS: readonly ItemId[] = ["lemon", "sugar", "ice", "cup"];
 
+/** Ingredient quality grade. Premium ingredients raise the recipe quality ceiling
+ *  (only the taste solids — lemon/sugar — have a meaningful premium). */
+export type ItemGrade = "standard" | "premium";
+
 export interface InventoryLot {
   item: ItemId;
   qty: number;
   ageDays: number;
+  /** Absent = standard (keeps old saves valid). */
+  grade?: ItemGrade;
+}
+
+/** The supplier market: a per-item price index (multiplier on base cost) that
+ *  drifts day to day via a seeded mean-reverting walk. */
+export interface SupplierState {
+  priceIndex: Record<ItemId, number>;
 }
 
 /** Recipe for one pitcher: integer "parts" of each ingredient + the cup price. */
@@ -290,6 +302,7 @@ export interface GameState {
 
   recipe: Recipe;
   inventory: InventoryLot[];
+  supplier: SupplierState; // per-item market price index
   ownedEquipmentIds: string[];
   staff: Staff[];
 

@@ -31,6 +31,7 @@ import {
 } from "./economy";
 import { nextCondition, makeWeatherDay } from "./weatherGen";
 import { rollEvent } from "./eventRoll";
+import { gradeQualityBonus, stepSupplierPrices } from "./supplier";
 import { TUNING } from "./tuning";
 import type {
   ArchetypeDef,
@@ -153,6 +154,9 @@ export class DaySim {
   private fbS = 0;
   private fbI = 0;
 
+  /** Additive quality bonus from premium taste solids brought into the day. */
+  private readonly gradeBonus: number;
+
   private readonly batchPitchers: number;
   private readonly cupsPerBatch: number;
   // Whole-unit ingredient cost of one batch (no fractional stock — see note).
@@ -211,6 +215,7 @@ export class DaySim {
     this.sumWeights = s;
 
     this.inv = state.inventory.map((l) => ({ ...l }));
+    this.gradeBonus = gradeQualityBonus(state.inventory);
     this.batchPitchers = this.derived.batchSizeMult;
     this.cupsPerBatch = Math.max(1, Math.round(TUNING.CUPS_PER_PITCHER * this.derived.batchSizeMult));
     // Round per-batch ingredient use to whole units so inventory stays integer
@@ -443,7 +448,7 @@ export class DaySim {
     const weather = this.state.weatherToday;
 
     const baseQ = recipeQuality(this.state.recipe, weather, c.tasteShift);
-    const quality = clamp(baseQ + this.rng.gaussian(0, TUNING.TASTE_NOISE), 0, 1);
+    const quality = clamp(baseQ + this.gradeBonus + this.rng.gaussian(0, TUNING.TASTE_NOISE), 0, 1);
     const fairness = priceFairness(price, this.tolerance, c.priceSensitivity);
     const wait = waitScore(c.waited, c.patience);
     const satisfaction = combineSatisfaction(quality, fairness, wait);
@@ -793,6 +798,8 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
   const nextCond = nextCondition(rng, prev.weatherToday.condition);
   const weatherToday = makeWeatherDay(rng, nextCond, d.derived.forecastAccuracy);
   const nextEventId = rollEvent(rng, prev.day + 1);
+  // Supplier prices drift overnight (one gaussian draw per item, fixed order).
+  const supplier = stepSupplierPrices(prev.supplier, rng);
 
   const next: GameState = {
     ...prev,
@@ -811,6 +818,7 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
     priceFeedback,
     weatherToday,
     activeEventId: nextEventId,
+    supplier,
     marketingSpend: 0,
     todayStockSpend: 0,
     todayEquipmentSpend: 0,

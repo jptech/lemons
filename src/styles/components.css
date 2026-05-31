@@ -354,6 +354,45 @@
   line-height: 1.35;
 }
 
+/* ---- Supplier market: grade toggle, price trend, hints ---- */
+.price-trend {
+  font-weight: 800;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.grade-toggle {
+  display: inline-flex;
+  gap: 0;
+  margin-top: var(--sp-1);
+  border: 2px solid var(--c-line);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  width: fit-content;
+}
+.grade-pill {
+  border: none;
+  background: transparent;
+  padding: 2px 10px;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.74rem;
+  color: var(--c-ink);
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+.grade-pill:hover { background: var(--c-cream); }
+.grade-pill--on {
+  background: var(--c-grape, #9775fa);
+  color: #fff;
+}
+.grade-note,
+.bulk-hint {
+  display: block;
+  font-size: 0.76rem;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
 /* ---- Sliders ---- */
 .slider {
   display: block;

@@ -50,6 +50,7 @@ export function newGame(seed: number, mode: GameMode = "campaign"): GameState {
     unlockedLocationIds: [STARTER_LOCATION_ID],
     recipe: { ...DEFAULT_RECIPE },
     inventory: [],
+    supplier: { priceIndex: { lemon: 1, sugar: 1, ice: 1, cup: 1 } },
     ownedEquipmentIds: [],
     staff: [],
     marketingSpend: 0,

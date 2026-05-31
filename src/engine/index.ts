@@ -52,6 +52,16 @@ export {
   marketingShortTerm,
 } from "./economy";
 
+export {
+  freshSupplier,
+  stepSupplierPrices,
+  itemHasPremium,
+  unitPrice,
+  bulkFactor,
+  nextBulkTier,
+  gradeQualityBonus,
+} from "./supplier";
+
 export { TUNING } from "./tuning";
 
 export * from "./types";

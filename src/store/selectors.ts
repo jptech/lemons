@@ -183,6 +183,23 @@ export function netWorth(g: GameState): number {
   return g.cash - g.debt;
 }
 
+// ---------------------------------------------------------------------------
+// Supplier market — player-facing price read
+// ---------------------------------------------------------------------------
+export interface PriceTrend {
+  index: number; // current multiplier vs baseline (1.0)
+  dir: "up" | "down" | "flat"; // pricey / cheap / about normal today
+  pctFromNormal: number; // signed % away from the baseline price
+}
+
+/** How an item's price compares to its normal baseline right now. */
+export function priceTrend(g: GameState, item: ItemId): PriceTrend {
+  const index = g.supplier?.priceIndex[item] ?? 1;
+  const pctFromNormal = (index - 1) * 100;
+  const dir = pctFromNormal > 3 ? "up" : pctFromNormal < -3 ? "down" : "flat";
+  return { index, dir, pctFromNormal };
+}
+
 /** How much of an item will spoil tonight if left unused (planning warning). */
 export function spoilTonight(g: GameState, item: ItemId): number {
   if (item === "ice") {

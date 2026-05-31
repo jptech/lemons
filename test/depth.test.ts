@@ -6,6 +6,7 @@ import {
   setMarketing,
   setRecipe,
   simulateDay,
+  unitPrice,
   type GameState,
 } from "../src/engine";
 import { inventoryQty } from "../src/engine/derive";
@@ -47,9 +48,11 @@ describe("random daily events", () => {
       s = simulateDay(planMorning(s)).state;
     }
     if (s.activeEventId === "lemon_shortage") {
-      const normal = 0.2; // base lemon cost
-      expect(itemBuyPrice(s, "lemon")).toBeGreaterThan(normal * 1.5);
-      expect(itemBuyPrice(s, "sugar")).toBe(0.1); // others unaffected
+      // The event multiplies lemon over its current market sticker (>1.5×)…
+      const lemonMarket = unitPrice(s.supplier, "lemon");
+      expect(itemBuyPrice(s, "lemon")).toBeGreaterThan(lemonMarket * 1.5);
+      // …while sugar is untouched by the event (just its market price).
+      expect(itemBuyPrice(s, "sugar")).toBeCloseTo(unitPrice(s.supplier, "sugar"), 9);
     }
   });
 

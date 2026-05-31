@@ -62,6 +62,12 @@ Modes: **Campaign** (goal ladder, can continue endless) and **Sandbox**.
 - **Weather** — Markov chain; noisy forecast vs actual; sets the ideal recipe.
 - **Inventory/spoilage** — slot-based storage; ice melts overnight, lemons spoil
   in 4 days, sugar/cups never. Ice Maker regenerates ice during the day.
+- **Supplier market** — per-item price index drifts daily via a seeded
+  mean-reverting walk (lemons swing most, cups least; stepped once at settlement).
+  **Quality grades** (standard/premium) on taste solids (lemon/sugar) raise the
+  recipe quality ceiling (premium fraction → additive taste bonus). **Bulk
+  discounts** on larger single purchases. Turns "buy stock" into sourcing +
+  timing speculation. (Supply contracts deferred to Phase 2, gated by research.)
 - **Events** — seeded daily deck (festival, heatwave, lemon shortage, …).
 - **Loans** — credit line scaling with reputation; auto-borrow cushions a bad day.
 - **Goals/achievements**, **analytics dashboard**, **save/load + import/export**.
@@ -220,3 +226,17 @@ Tagged by effort. Pulled from the theme review; trim/expand as we go.
   bars relabeled ⭐Taste / 💵Value / ⚡Service ("What built your reputation").
   Migration 4→5 splits the old scalar into equal facets. Regression tests in
   `test/reputation.test.ts`.
+
+- **Step B — supplier market & ingredient quality.** New pure `engine/supplier.ts`:
+  `stepSupplierPrices` (mean-reverting per-item walk, one gaussian draw/item at
+  settlement — determinism preserved), `unitPrice`/`bulkFactor`/`nextBulkTier`,
+  `gradeQualityBonus`. `GameState.supplier.priceIndex` drifts daily;
+  `InventoryLot.grade` ("standard"/"premium", absent = standard so old lots are
+  valid). Premium taste solids (lemon/sugar) add up to +10% recipe quality
+  (`GRADE_QUALITY_BONUS` × premium fraction, applied as a day-level bonus from
+  starting inventory); premium cups/ice are intentionally not offered (a trap
+  avoided). Bulk tiers discount large single buys. `buyStock`/`maxBuyable`/
+  `itemBuyPrice` gained an optional grade; premium and standard are kept as
+  distinct lots. UI: per-row Standard/✨Premium toggle (lemon/sugar), price-trend
+  chip (▲/▼ % vs normal), bulk hint, and event-spike red. Migration 5→6 seeds a
+  neutral market. Tests in `test/supplier.test.ts`.

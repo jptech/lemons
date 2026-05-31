@@ -13,10 +13,14 @@ import {
   equipmentStatus,
   idealRecipe,
   itemBuyPrice,
+  itemHasPremium,
   inventoryQty,
+  maxBuyable,
+  nextBulkTier,
   recipeQuality,
   TUNING,
   type GameState,
+  type ItemGrade,
   type ItemId,
   type Recipe,
 } from "../../engine";
@@ -343,6 +347,11 @@ function itemsPerSlot(item: ItemId): number {
   return Math.round(1 / TUNING.SLOT_COST[item]);
 }
 
+/** Per-item grade the buy buttons use (UI-only; resets are harmless). */
+const selectedGrade: Partial<Record<ItemId, ItemGrade>> = {};
+
+const TREND_ICON: Record<sel.PriceTrend["dir"], string> = { up: "▲", down: "▼", flat: "▬" };
+
 function stockPanel(g: GameState): HTMLElement {
   const st = sel.storage(g);
   const frac = st.used / st.capacity;
@@ -364,30 +373,81 @@ function stockPanel(g: GameState): HTMLElement {
       h("div.segbar", {}, segments),
       h("p.stock__legend.muted", {}, `Bulky items eat more space: 🧊 ${itemsPerSlot("ice")}/slot · 🍋 ${itemsPerSlot("lemon")}/slot · 🍬 ${itemsPerSlot("sugar")}/slot · 🥤 ${itemsPerSlot("cup")}/slot`),
     ]),
-    ...STOCK_ROWS.map((row) => {
-      const have = inventoryQty(g, row.item);
-      const price = itemBuyPrice(g, row.item);
-      const slotsUsed = have * TUNING.SLOT_COST[row.item];
-      const spiked = row.item === "lemon" && price > TUNING.ITEM_COST.lemon + 1e-9;
-      const spoils = sel.spoilTonight(g, row.item);
-      return h("div.stockrow", {}, [
-        h("div.stockrow__info", {}, [
-          h("strong.stockrow__name", {}, [
-            h("span.stock__dot", { style: { background: ITEM_COLOR[row.item] } }),
-            ` ${row.icon} ${row.name}`,
-            h("span.stockrow__have.num", {}, `× ${have}`),
-          ]),
-          h("span.stock__note", { class: spiked ? "neg" : "muted" }, `${money(price)} ea · ${row.note(g)} · ${slotsUsed.toFixed(1)} slots`),
-          spoils > 0 ? h("span.spoil-warn", {}, `⚠️ ${spoils} ${row.item === "ice" ? "melt" : "spoil"} tonight`) : null,
-        ]),
-        h("div.stockrow__controls", {}, [
-          button("−10", () => actions.discardStock(row.item, 10), { size: "sm", variant: "ghost" }),
-          button("+10", () => actions.buyStock(row.item, 10), { size: "sm", variant: "ghost" }),
-          button("+50", () => actions.buyStock(row.item, 50), { size: "sm", variant: "ghost" }),
-          button("Max", () => actions.buyMax(row.item), { size: "sm", variant: "sky" }),
-        ]),
-      ]);
-    }),
+    ...STOCK_ROWS.map((row) => stockRow(g, row)),
+  );
+}
+
+function stockRow(g: GameState, row: (typeof STOCK_ROWS)[number]): HTMLElement {
+  const have = inventoryQty(g, row.item);
+  const hasPremium = itemHasPremium(row.item);
+  const grade: ItemGrade = (hasPremium && selectedGrade[row.item]) || "standard";
+  const price = itemBuyPrice(g, row.item, grade);
+  const slotsUsed = have * TUNING.SLOT_COST[row.item];
+  const eventSpiked =
+    row.item === "lemon" &&
+    g.activeEventId != null &&
+    (EVENT_BY_ID[g.activeEventId]?.effect.lemonPriceMult ?? 1) > 1;
+  const trend = sel.priceTrend(g, row.item);
+  const spoils = sel.spoilTonight(g, row.item);
+
+  // Bulk hint: the next quantity that earns a discount.
+  const nextTier = nextBulkTier(have);
+  const canFitTier = nextTier && maxBuyable(g, row.item, grade) >= nextTier.min - have;
+
+  const trendChip =
+    trend.dir === "flat"
+      ? null
+      : h("span.price-trend", { class: trend.dir === "up" ? "neg" : "pos", title: `${Math.abs(Math.round(trend.pctFromNormal))}% ${trend.dir === "up" ? "above" : "below"} normal` },
+          `${TREND_ICON[trend.dir]} ${Math.abs(Math.round(trend.pctFromNormal))}%`);
+
+  const gradeToggle = hasPremium
+    ? h("div.grade-toggle", {}, [
+        gradeBtn(row.item, "standard", grade),
+        gradeBtn(row.item, "premium", grade),
+      ])
+    : null;
+
+  return h("div.stockrow", {}, [
+    h("div.stockrow__info", {}, [
+      h("strong.stockrow__name", {}, [
+        h("span.stock__dot", { style: { background: ITEM_COLOR[row.item] } }),
+        ` ${row.icon} ${row.name}`,
+        h("span.stockrow__have.num", {}, `× ${have}`),
+      ]),
+      h("span.stock__note", { class: eventSpiked ? "neg" : "muted" }, [
+        `${money(price)} ea`,
+        trendChip ? " · " : "",
+        trendChip,
+        ` · ${row.note(g)} · ${slotsUsed.toFixed(1)} slots`,
+      ]),
+      gradeToggle,
+      grade === "premium"
+        ? h("span.grade-note.pos", {}, `✨ premium — up to +${Math.round(TUNING.GRADE_QUALITY_BONUS * 100)}% taste`)
+        : canFitTier
+          ? h("span.bulk-hint.muted", {}, `buy ${nextTier!.min}+ → −${Math.round((1 - nextTier!.mult) * 100)}% bulk`)
+          : null,
+      spoils > 0 ? h("span.spoil-warn", {}, `⚠️ ${spoils} ${row.item === "ice" ? "melt" : "spoil"} tonight`) : null,
+    ]),
+    h("div.stockrow__controls", {}, [
+      button("−10", () => actions.discardStock(row.item, 10), { size: "sm", variant: "ghost" }),
+      button("+10", () => actions.buyStock(row.item, 10, grade), { size: "sm", variant: "ghost" }),
+      button("+50", () => actions.buyStock(row.item, 50, grade), { size: "sm", variant: "ghost" }),
+      button("Max", () => actions.buyMax(row.item, grade), { size: "sm", variant: "sky" }),
+    ]),
+  ]);
+}
+
+function gradeBtn(item: ItemId, grade: ItemGrade, current: ItemGrade): HTMLElement {
+  const label = grade === "premium" ? "✨ Premium" : "Standard";
+  return h(
+    "button.grade-pill" + (grade === current ? ".grade-pill--on" : ""),
+    {
+      onClick: () => {
+        selectedGrade[item] = grade;
+        actions.refresh();
+      },
+    },
+    label,
   );
 }
 
