@@ -70,9 +70,7 @@ export function renderPlanning(s: AppState): HTMLElement {
       stockPanel(g),
       reputationPanel(g),
       marketingPanel(g),
-      equipmentPanel(g),
-      staffPanel(g),
-      locationPanel(g),
+      growPanel(g),
     ]),
     financeBar(g),
     openBar(g),
@@ -336,14 +334,19 @@ function menuManager(g: GameState): Child {
   if (!offMenu.length) return null;
   const atCap = g.menu.length >= 2;
   return h("div.menu-manager", {}, [
-    h("p.muted.small", {}, atCap ? "Menu full (2). Remove one to swap." : "Add a second drink to widen your appeal — it splits your crew's time, so it's a trade-off."),
+    h("p.muted.small", {}, atCap ? "Menu full (2). Remove a drink to swap." : "Add a second drink to widen your appeal — it splits your crew's time, so it's a trade-off."),
     ...offMenu.map((p) =>
-      optionBtn(
-        h("span", {}, [`${p.icon} ${p.name}`, h("span.muted.small", {}, ` — ${p.blurb}`)]),
-        atCap ? "full" : "+ Add",
-        () => actions.toggleMenuProduct(p.id),
-        { variant: "sky", disabled: atCap },
-      ),
+      h("div.menu-add" + (atCap ? ".menu-add--off" : ""), {}, [
+        h("div.menu-add__info", {}, [
+          h("strong.menu-add__name", {}, `${p.icon} ${p.name}`),
+          h("span.menu-add__blurb.muted.small", {}, p.blurb),
+        ]),
+        button(atCap ? "Full" : "+ Add", () => actions.toggleMenuProduct(p.id), {
+          size: "sm",
+          variant: "sky",
+          disabled: atCap,
+        }),
+      ]),
     ),
   ]);
 }
@@ -454,40 +457,43 @@ function stockRow(g: GameState, row: (typeof STOCK_ROWS)[number]): HTMLElement {
       ])
     : null;
 
+  // A single compact meta line: freshness/spoilage · slots (+ grade split).
+  const metaBits: Child[] = [h("span", {}, row.note(g)), h("span.dotsep", {}, "·"), h("span", {}, `${slotsUsed.toFixed(1)} slots`)];
+  if (hasPremium && byGrade.premium > 0) {
+    metaBits.push(h("span.dotsep", {}, "·"), h("span.grade-split__prem", {}, `✨ ${byGrade.premium} premium`));
+  }
+
+  const hint =
+    grade === "premium"
+      ? h("span.bulk-hint.pos", {}, `✨ premium — up to +${Math.round(TUNING.GRADE_QUALITY_BONUS * 100)}% taste`)
+      : canFitTier
+        ? h("span.bulk-hint.muted", {}, `buy ${nextTier!.min}+ → −${Math.round((1 - nextTier!.mult) * 100)}% bulk`)
+        : null;
+
   return h("div.stockrow", {}, [
-    h("div.stockrow__info", {}, [
-      h("strong.stockrow__name", {}, [
+    // Row 1 — identity + live price.
+    h("div.stockrow__head", {}, [
+      h("span.stockrow__name", {}, [
         h("span.stock__dot", { style: { background: ITEM_COLOR[row.item] } }),
-        ` ${row.icon} ${row.name}`,
-        h("span.stockrow__have.num", {}, `× ${have}`),
+        `${row.icon} ${row.name}`,
       ]),
-      h("span.stock__note", { class: eventSpiked ? "neg" : "muted" }, [
-        `${money(price)} ea`,
-        trendChip ? " · " : "",
-        trendChip,
-        ` · ${row.note(g)} · ${slotsUsed.toFixed(1)} slots`,
+      h("span.stockrow__have.num", {}, `${have}`),
+      h("span.stockrow__price", { class: eventSpiked ? "neg" : "" }, [money(price), trendChip]),
+    ]),
+    // Row 2 — compact meta.
+    h("div.stockrow__meta.muted", {}, metaBits),
+    spoils > 0 ? h("span.spoil-warn", {}, `⚠️ ${spoils} ${row.item === "ice" ? "melt" : "spoil"} tonight`) : null,
+    // Row 3 — grade choice (if any) + buy controls, grouped.
+    h("div.stockrow__buy", {}, [
+      gradeToggle ?? h("span", {}),
+      h("div.stockrow__controls", {}, [
+        button("−10", () => actions.discardStock(row.item, 10), { size: "sm", variant: "ghost" }),
+        button("+10", () => actions.buyStock(row.item, 10, grade), { size: "sm", variant: "ghost" }),
+        button("+50", () => actions.buyStock(row.item, 50, grade), { size: "sm", variant: "ghost" }),
+        button("Max", () => actions.buyMax(row.item, grade), { size: "sm", variant: "sky" }),
       ]),
-      hasPremium && byGrade.premium > 0
-        ? h("span.grade-split", {}, [
-            h("span.grade-split__std", {}, `${byGrade.standard} standard`),
-            " · ",
-            h("span.grade-split__prem", {}, `✨ ${byGrade.premium} premium`),
-          ])
-        : null,
-      gradeToggle,
-      grade === "premium"
-        ? h("span.grade-note.pos", {}, `✨ premium — up to +${Math.round(TUNING.GRADE_QUALITY_BONUS * 100)}% taste`)
-        : canFitTier
-          ? h("span.bulk-hint.muted", {}, `buy ${nextTier!.min}+ → −${Math.round((1 - nextTier!.mult) * 100)}% bulk`)
-          : null,
-      spoils > 0 ? h("span.spoil-warn", {}, `⚠️ ${spoils} ${row.item === "ice" ? "melt" : "spoil"} tonight`) : null,
     ]),
-    h("div.stockrow__controls", {}, [
-      button("−10", () => actions.discardStock(row.item, 10), { size: "sm", variant: "ghost" }),
-      button("+10", () => actions.buyStock(row.item, 10, grade), { size: "sm", variant: "ghost" }),
-      button("+50", () => actions.buyStock(row.item, 50, grade), { size: "sm", variant: "ghost" }),
-      button("Max", () => actions.buyMax(row.item, grade), { size: "sm", variant: "sky" }),
-    ]),
+    hint,
   ]);
 }
 
@@ -527,10 +533,42 @@ function marketingPanel(g: GameState): HTMLElement {
 }
 
 // ---------------------------------------------------------------------------
-function equipmentPanel(g: GameState): HTMLElement {
-  return panel(
-    "🛠️",
-    "Equipment",
+// "Grow" — a tabbed panel grouping the occasional invest actions (equipment,
+// staff, locations) so they don't sprawl across the dashboard.
+type GrowTab = "equipment" | "staff" | "locations";
+let growTab: GrowTab = "equipment";
+
+function growPanel(g: GameState): HTMLElement {
+  const tabs: { id: GrowTab; label: string }[] = [
+    { id: "equipment", label: "🛠️ Equipment" },
+    { id: "staff", label: `🧑‍🍳 Staff ${g.staff.length}/${TUNING.STAFF_CAP}` },
+    { id: "locations", label: "📍 Locations" },
+  ];
+  const content =
+    growTab === "equipment" ? equipmentContent(g) : growTab === "staff" ? staffContent(g) : locationContent(g);
+  return h("section.panel.grow", {}, [
+    h(
+      "div.tabbar",
+      {},
+      tabs.map((t) =>
+        h(
+          "button.tab" + (t.id === growTab ? ".tab--on" : ""),
+          {
+            onClick: () => {
+              growTab = t.id;
+              actions.refresh();
+            },
+          },
+          t.label,
+        ),
+      ),
+    ),
+    h("div.grow__body", {}, content),
+  ]);
+}
+
+function equipmentContent(g: GameState): Child[] {
+  return [
     h("p.muted.small", {}, "Upgrade lines — each level replaces the last. Some need a better location or reputation."),
     h(
       "div.shop",
@@ -570,7 +608,7 @@ function equipmentPanel(g: GameState): HTMLElement {
         ]);
       }),
     ),
-  );
+  ];
 }
 
 // Describe a staff tier's perks from its speed bonuses.
@@ -582,11 +620,9 @@ function staffBenefit(s: { serveSpeedBonus: number; batchSpeedBonus: number }): 
 }
 
 // ---------------------------------------------------------------------------
-function staffPanel(g: GameState): HTMLElement {
+function staffContent(g: GameState): Child[] {
   const full = g.staff.length >= TUNING.STAFF_CAP;
-  return panel(
-    "🧑‍🍳",
-    `Staff (${g.staff.length}/${TUNING.STAFF_CAP})`,
+  return [
     h("p.muted.small", {}, `Each hire adds a serving station (max ${TUNING.STAFF_CAP}). Pricier staff work faster — worth it once your stations are full.`),
     ...g.staff.map((st) =>
       h("div.shop__row", {}, [
@@ -623,14 +659,12 @@ function staffPanel(g: GameState): HTMLElement {
             ]),
           ),
         ),
-  );
+  ];
 }
 
 // ---------------------------------------------------------------------------
-function locationPanel(g: GameState): HTMLElement {
-  return panel(
-    "📍",
-    "Locations",
+function locationContent(g: GameState): Child[] {
+  return [
     h("p.muted.small", {}, "Bigger spots mean more traffic and higher prices — but pricier rent and weather risk."),
     h(
       "div.shop",
@@ -657,7 +691,7 @@ function locationPanel(g: GameState): HTMLElement {
         ]);
       }),
     ),
-  );
+  ];
 }
 
 // ---------------------------------------------------------------------------

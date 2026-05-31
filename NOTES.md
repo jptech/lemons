@@ -274,3 +274,20 @@ Tagged by effort. Pulled from the theme review; trim/expand as we go.
   - **Live day stats**: `SimSnapshot.products` carries per-product pool + cups
     sold; the sim shows a **Menu** strip (sold/ready per drink) and a brew icon
     over a station making each drink (`StationView.makeIcon`).
+
+- **Dashboard UI overhaul** (planning screen got busy as systems stacked up):
+  - **Masonry layout**: `.grid--panels` switched from an equal-height CSS grid to
+    a balanced multi-column (`column-count` + `break-inside: avoid`), so short
+    cards (Reputation, Marketing) tuck beside tall ones instead of leaving big
+    vertical gaps. Responsive: 3 → 2 → 1 columns.
+  - **Tabbed "Grow" panel**: Equipment / Staff / Locations (the occasional
+    "invest" actions) collapsed into one tabbed card (`growPanel` + `growTab`),
+    so the dashboard is 5 cards instead of 7 and the tall Equipment list only
+    shows on demand. The three panel bodies are now `*Content()` helpers.
+  - **Recap per-product table**: the recap's "By the menu" panel (per-product
+    cups/revenue/★/share + aggregate total row).
+  - **Menu add-drink row** redesigned (`.menu-add`): name + wrapping blurb left,
+    compact "+ Add" button right — fixes the 3-line "Pink Lemonade" overflow.
+  - **Stock card** redesigned into a sleek 3-zone row: identity + live price on
+    one line, a compact meta line (freshness · slots · premium count), then the
+    grade toggle grouped with the buy controls, with the bulk/grade hint beneath.

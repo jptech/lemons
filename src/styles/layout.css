@@ -38,8 +38,19 @@
   gap: var(--sp-4);
 }
 
+/* Dashboard panels use a balanced masonry (CSS multi-column) so cards of very
+   different heights pack tightly — short cards (Reputation, Marketing) tuck in
+   beside tall ones instead of leaving big vertical gaps. */
 .grid--panels {
-  grid-template-columns: repeat(3, 1fr);
+  display: block;
+  column-count: 3;
+  column-gap: var(--sp-4);
+}
+.grid--panels > .panel {
+  break-inside: avoid;
+  /* a column item can't use grid gap, so space them with margin */
+  margin-bottom: var(--sp-4);
+  width: 100%;
 }
 
 .grid--stats {
@@ -59,7 +70,7 @@
 /* ---- Responsive ---- */
 @media (max-width: 1040px) {
   .grid--panels {
-    grid-template-columns: repeat(2, 1fr);
+    column-count: 2;
   }
 }
 
@@ -75,7 +86,7 @@
     gap: var(--sp-4);
   }
   .grid--panels {
-    grid-template-columns: 1fr;
+    column-count: 1;
   }
   .hud__stats {
     gap: var(--sp-3);

@@ -423,6 +423,56 @@
   flex-direction: column;
   gap: var(--sp-2);
 }
+/* Add-a-drink row — name + wrapping blurb on the left, compact button right. */
+.menu-add {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 2px solid var(--c-line);
+  border-radius: var(--radius-md);
+  background: var(--c-cream-card);
+}
+.menu-add--off { opacity: 0.6; }
+.menu-add__info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.menu-add__name { font-weight: 800; font-size: 0.92rem; }
+.menu-add__blurb { line-height: 1.3; }
+.menu-add .btn { flex: none; }
+
+/* ---- Tab bar (the "Grow" panel) ---- */
+.tabbar {
+  display: flex;
+  gap: 4px;
+  margin: calc(-1 * var(--sp-1)) 0 var(--sp-3);
+  border-bottom: 2px solid var(--c-line);
+}
+.tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.86rem;
+  color: var(--c-ink-soft);
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast);
+  white-space: nowrap;
+}
+.tab:hover { color: var(--c-ink); background: var(--c-cream); }
+.tab--on {
+  color: var(--c-ink);
+  border-bottom-color: var(--c-sun);
+}
 .menu-mix {
   display: flex;
   flex-wrap: wrap;
@@ -619,39 +669,70 @@
   vertical-align: middle;
 }
 
-/* ---- Stock rows (wrap-safe) ---- */
+/* ---- Stock rows (sleek 3-zone: identity+price / meta / grade+buy) ---- */
 .stockrow {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-2);
-  padding: var(--sp-2) 0;
+  flex-direction: column;
+  gap: 5px;
+  padding: var(--sp-3) 0;
   border-top: 1px dashed var(--c-line);
 }
-.stockrow__info {
-  flex: 1 1 140px;
-  min-width: 0;
+.stockrow__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
 }
 .stockrow__name {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  font-weight: 800;
+  font-size: 0.95rem;
 }
 .stockrow__have {
   color: var(--c-ink-soft);
   font-weight: 800;
-  margin-left: 2px;
+  font-size: 0.95rem;
+}
+.stockrow__have::before {
+  content: "×";
+  opacity: 0.5;
+  margin-right: 2px;
+}
+.stockrow__price {
+  margin-left: auto;
+  font-weight: 700;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.stockrow__price.neg { color: var(--c-coral); }
+.stockrow__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.76rem;
+}
+.dotsep { opacity: 0.4; }
+.stockrow__buy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
 }
 .stockrow__controls {
   display: flex;
-  flex-wrap: wrap;
   gap: 4px;
   justify-content: flex-end;
+  margin-left: auto;
 }
 .stockrow .btn--sm {
   padding: var(--sp-1) var(--sp-2);
-  min-width: 38px;
+  min-width: 36px;
 }
 .spoil-warn {
   display: inline-block;
