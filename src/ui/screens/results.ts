@@ -36,6 +36,7 @@ export function renderResults(s: AppState): HTMLElement {
     rewardsBanner(r),
     campaignDone && r.newGoals.length ? campaignBanner() : null,
     statRow(r, prev, recent),
+    productBreakdownPanel(r),
     h("div.grid.grid--charts", {}, [
       cashChart(recent),
       costDonut(r),
@@ -225,26 +226,51 @@ function reviewsPanel(r: DayResult): HTMLElement {
       barChart(starBars, { title: "Star ratings", yFormat: (n) => String(Math.round(n)) }),
       barChart(drivers, { title: "What built your reputation", yFormat: (n) => `${Math.round(n)}%`, height: 200 }),
     ]),
-    menuMix(r),
     feedbackLine(r),
   );
 }
 
-/** Per-product sales mix (only when more than one product was on the menu). */
-function menuMix(r: DayResult): Child {
+/**
+ * Per-product sales breakdown with an aggregate total row (only shown when more
+ * than one drink was on the menu — a single-product day is fully covered by the
+ * headline stat cards). Each product's cups + revenue sum to the day totals.
+ */
+function productBreakdownPanel(r: DayResult): Child {
   const entries = Object.entries(r.perProduct ?? {});
   if (entries.length < 2) return null;
-  return h(
-    "div.menu-mix",
-    {},
-    entries.map(([id, p]) => {
-      const def = PRODUCT_BY_ID[id];
-      return h("span.menu-mix__item", { title: `${def?.name ?? id}: ${money(p!.revenue)}` }, [
-        `${def?.icon ?? "🥤"} ${def?.name ?? id}`,
-        h("strong", {}, ` ${p!.cupsSold}`),
-        h("span.muted", {}, ` cups · ${p!.avgStars.toFixed(1)}★`),
-      ]);
-    }),
+  const totalCups = r.cupsSold || 1;
+
+  const headerRow = h("div.prodtable__row.prodtable__row--head", {}, [
+    h("span", {}, "Drink"),
+    h("span.num", {}, "Cups"),
+    h("span.num", {}, "Revenue"),
+    h("span.num", {}, "Avg ★"),
+    h("span.num", {}, "Share"),
+  ]);
+  const rows = entries.map(([id, p]) => {
+    const def = PRODUCT_BY_ID[id];
+    const share = Math.round((p!.cupsSold / totalCups) * 100);
+    return h("div.prodtable__row", {}, [
+      h("span.prodtable__name", {}, `${def?.icon ?? "🥤"} ${def?.name ?? id}`),
+      h("span.num", {}, String(p!.cupsSold)),
+      h("span.num", {}, money(p!.revenue)),
+      h("span.num", {}, p!.avgStars > 0 ? `${p!.avgStars.toFixed(1)}★` : "—"),
+      h("span.num", {}, `${share}%`),
+    ]);
+  });
+  const totalRow = h("div.prodtable__row.prodtable__row--total", {}, [
+    h("span.prodtable__name", {}, "🧮 All drinks"),
+    h("span.num", {}, String(r.cupsSold)),
+    h("span.num", {}, money(r.revenue)),
+    h("span.num", {}, r.avgStars > 0 ? `${r.avgStars.toFixed(1)}★` : "—"),
+    h("span.num", {}, "100%"),
+  ]);
+
+  return panel(
+    "🥤",
+    "By the menu",
+    h("div.prodtable", {}, [headerRow, ...rows, totalRow]),
+    h("p.muted.small", {}, "Revenue is cup sales (tips are pooled in the day total). Share is by cups sold."),
   );
 }
 

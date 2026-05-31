@@ -342,6 +342,110 @@ entry.
 
 ---
 
+## Phase 1 — known limitations & future refinements
+
+Honest accounting of where the shipped Phase 1 work is deliberately simplified,
+where it's rough, and what we'd change next. None of these block play; they're
+the seams Phase 2 (and small follow-ups) should tighten. Grouped by step.
+
+### A — multi-facet reputation
+
+- **Blend ≠ old satisfaction weights.** Overall ★ blends facets 0.35 / 0.25 /
+  0.25 / 0.15 (taste/service/value/buzz), which doesn't exactly equal the old
+  satisfaction weights (`W_QUALITY 0.45`, `W_PRICE 0.25`, `W_WAIT 0.30`). The
+  *tilts* are neutral at uniformity, but the overall-rep **trajectory** drifts a
+  few % from pre-A. Acceptable, not identical.
+- **All event reputation shocks land on Buzz.** `EventEffect.repDelta` routes
+  entirely to the Buzz (awareness) facet. Conceptually an inspection fail should
+  hit Service/Value, a bad-recipe rumor should hit Taste. **Future:** facet-
+  targeted event effects (planned in Phase 2 D's shock/recovery arcs).
+- **Linear, lightly-bounded tilts.** Facet→lever effects are linear in
+  `(facet − overall)` and only clamped; no diminishing returns or cross-facet
+  interaction. Extreme divergence could over/under-shoot.
+- **Word-of-mouth is a flat term.** `BUZZ_WOM_GAIN × delighted/served` nudges
+  Buzz; the compounding organic-growth loop (great stretch → snowball past the
+  cap) is explicitly Phase 2 D.
+- **Weak-spot diagnosis is a fixed threshold** (flag the lowest facet once the
+  spread > 8). It doesn't weigh a facet against how *binding* it is for the
+  current location/strategy. **Future:** rank by marginal impact.
+- **Regulars pool stays a single scalar**, not facet-aware (a Taste-driven
+  regular vs a Value-driven one behave the same).
+
+### B — supplier market & ingredient quality
+
+- **Grade quality bonus is a day-level approximation.** `gradeQualityBonus`
+  reads the **premium fraction of starting lemon+sugar inventory** and applies a
+  uniform additive bonus to *every* sale that day — it does **not** follow FIFO
+  consumption. If you carry premium but the day only consumes standard lots (or
+  vice versa), the bonus is slightly mis-attributed. **Future:** track consumed
+  grade per batch for exact attribution.
+- **Bonus is global, not per-product.** Premium ingredients lift *both* drinks
+  equally, even the one that didn't use them. Ties into E₀'s shared-stock model.
+- **Grades only on lemon & sugar; no "organic" tier.** Ice/cup intentionally
+  have no premium (the trap-avoidance lesson). The type allows a third tier but
+  it isn't configured.
+- **`maxBuyable` ignores bulk discounts** (uses the sticker price as a
+  conservative bound), so "Max" can slightly under-buy when a bulk break would
+  make more affordable.
+- **Price walk is independent & strictly mean-reverting to 1.0.** No
+  cross-item correlation, no seasonality, and no long-term drift/inflation — so
+  the market can't trend expensive over a long game. **Future:** inflation /
+  seasonal lemon prices (pairs with Phase 2 G).
+- **Supply contracts not shipped** (deferred to Phase 2, gated by research) —
+  there's no way to hedge volatility yet.
+
+### E₀ — menu foundation
+
+- **Top-of-funnel demand uses only the PRIMARY product's price.** The crowd size
+  (`expectedCustomers`) applies price-acceptance to the primary/headline price; a
+  customer who would balk at Pink's higher price can still arrive (counted via
+  Classic's cheaper price) and then *choose* Pink. The forecast mirrors the sim,
+  so it's internally **consistent**, but per-product price doesn't filter its own
+  demand. **Future:** per-product demand & price acceptance (biggest single
+  fidelity gap).
+- **No product substitution.** A customer picks their drink on arrival and will
+  wait/renege for *that* product (FIFO). They won't switch to the in-stock drink
+  if their pick runs dry — so a single-product stockout can stall the line while
+  the other product sits ready. **Future:** a "I'll take the other one" fallback
+  weighted by how strong the preference was.
+- **Demand split is an estimate.** `productSplit` uses base archetype weights ×
+  appeal (with the current regulars snapshot); the live mix varies with the
+  day's actual crowd, so the planning "~X% of sales" is a guide, not a promise.
+- **Throughput forecast under-models batch-switching.** Running two products
+  means priming two pools and more make/serve interleaving; the capacity estimate
+  doesn't fully charge for that overhead, so a 2-product day's capacity ceiling is
+  slightly optimistic.
+- **Per-product avg ★ is noisy at low volume.** Recap stars come from sampled
+  reviews; a drink with few cups has a high-variance average (we show "—" at
+  zero, but small samples still wobble).
+- **Shared ingredients only.** Pink reuses lemon/sugar/ice — no unique ingredient
+  line, so there's no differentiated supply chain or storage pressure yet
+  (Phase 2 E₊). Menu is capped at **2**.
+- **`pitchersFromStock` (primary-only) lingers** beside the new menu-aware
+  `servableCups` — minor redundancy kept for the single-product stock check.
+
+### Cross-cutting
+
+- **Determinism caveat:** a 1-product menu takes no product-pick RNG draw, so the
+  classic path is byte-identical to pre-E₀ — but a 2-product run of the same seed
+  is *not* comparable to a 1-product run (expected; the streams diverge by design).
+- **Balance is validated single-product only.** `scripts/balance.ts` runs a
+  one-drink baseline; a **multi-product balance sweep** (and premium-vs-standard,
+  and a 40–50 day long-run) is still owed.
+- **Reputation/quality interplay unswept.** Premium ingredients → higher Taste →
+  higher price tolerance is a compounding loop we haven't stress-tested for a
+  degenerate "all-premium, high-price" dominant strategy.
+
+### Priority follow-ups (small, before or alongside Phase 2)
+
+1. Per-product demand & price acceptance (closes the top-of-funnel gap).
+2. Product substitution on stockout (removes the line-stall failure mode).
+3. FIFO-accurate, per-product grade quality attribution.
+4. Multi-product + premium balance sweep in `scripts/balance.ts`.
+5. Facet-targeted event shocks (folds naturally into Phase 2 D).
+
+---
+
 # PHASE 2 — extended late-game headroom
 
 Goal: give a mastered business **somewhere to grow** so it doesn't saturate.
