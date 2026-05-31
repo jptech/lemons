@@ -22,7 +22,8 @@ import {
   type RepFacetId,
 } from "../engine";
 import { forecastSigma } from "../engine/economy";
-import { PRODUCT_BY_ID } from "../data/products";
+import { PRODUCT_BY_ID, type ProductDef } from "../data/products";
+import { ARCHETYPES } from "../data/archetypes";
 import { LOCATION_BY_ID } from "../data/locations";
 import { EVENT_BY_ID } from "../data/events";
 
@@ -172,6 +173,7 @@ export function projectedIceAvailable(g: GameState): number {
  * How many pitchers the day's stock can brew (limited by the scarcest
  * ingredient). Ice counts the maker's full-day output too, so a stand with an
  * ice maker isn't falsely bottlenecked on the ice it starts the day with.
+ * (Primary product — kept for the single-product stock check.)
  */
 export function pitchersFromStock(g: GameState): number {
   const r = primaryProduct(g).recipe;
@@ -185,10 +187,98 @@ export function pitchersFromStock(g: GameState): number {
   );
 }
 
-/** Cups of lemonade the current stock can ultimately serve (also cup-limited). */
+// ---------------------------------------------------------------------------
+// Per-product expectations (the menu split & blended stock demand)
+// ---------------------------------------------------------------------------
+export interface ProductShare {
+  id: ProductId;
+  def: ProductDef;
+  fraction: number; // expected share of sales (0..1)
+}
+
+/**
+ * Expected split of sales across the active menu. Customers will buy either
+ * drink but lean by archetype appeal — a kid usually grabs pink, an adult is
+ * even. Mirrors the sim's archetype × product-appeal weighting (an estimate;
+ * the live mix varies with the day's actual crowd).
+ */
+export function productSplit(g: GameState): ProductShare[] {
+  const menu = (g.menu.length ? g.menu : (["classic"] as ProductId[])).filter((id) => PRODUCT_BY_ID[id]);
+  if (menu.length <= 1) {
+    const id = menu[0] ?? "classic";
+    return [{ id, def: PRODUCT_BY_ID[id]!, fraction: 1 }];
+  }
+  const loc = currentLocation(g);
+  const bias = loc.archetypeBias ?? {};
+  const regularWeight = Math.min(2.5, g.regularsPool / Math.max(1, loc.baseTraffic * 0.15));
+  const archWeights = ARCHETYPES.map((a) => ({
+    a,
+    w: a.id === "regular" ? regularWeight : a.baseWeight * (bias[a.id] ?? 1),
+  }));
+  const totalArch = archWeights.reduce((s, x) => s + x.w, 0) || 1;
+  const frac: Record<string, number> = {};
+  for (const id of menu) frac[id] = 0;
+  for (const { a, w } of archWeights) {
+    const pArch = w / totalArch;
+    const appealSum = menu.reduce((s, id) => s + Math.max(0, PRODUCT_BY_ID[id]?.appeal?.[a.id] ?? 1), 0) || 1;
+    for (const id of menu) {
+      const ap = Math.max(0, PRODUCT_BY_ID[id]?.appeal?.[a.id] ?? 1);
+      frac[id] = (frac[id] ?? 0) + pArch * (ap / appealSum);
+    }
+  }
+  return menu.map((id) => ({ id, def: PRODUCT_BY_ID[id]!, fraction: frac[id] ?? 0 }));
+}
+
+/** Expected ingredient units consumed per cup, blended across the menu split. */
+function blendedPerCup(g: GameState): { lemon: number; sugar: number; ice: number } {
+  const out = { lemon: 0, sugar: 0, ice: 0 };
+  for (const { id, fraction } of productSplit(g)) {
+    const r = productStateOf(g, id).recipe;
+    out.lemon += (fraction * r.lemons) / TUNING.CUPS_PER_PITCHER;
+    out.sugar += (fraction * r.sugar) / TUNING.CUPS_PER_PITCHER;
+    out.ice += (fraction * r.ice) / TUNING.CUPS_PER_PITCHER;
+  }
+  return out;
+}
+
+/** Blended average price per cup across the expected menu split. */
+export function blendedPrice(g: GameState): number {
+  let p = 0;
+  for (const { id, fraction } of productSplit(g)) p += fraction * productStateOf(g, id).recipe.pricePerCup;
+  return p;
+}
+
+/**
+ * Cups the day's stock can ultimately serve, accounting for BOTH products
+ * sharing the same raw ingredients (weighted by the expected sales split) and
+ * the cup count.
+ */
 export function servableCups(g: GameState): number {
-  const fromPitchers = pitchersFromStock(g) * TUNING.CUPS_PER_PITCHER;
-  return Math.min(fromPitchers, inventoryQty(g, "cup"));
+  const pc = blendedPerCup(g);
+  const lim = (have: number, per: number) => (per > 1e-9 ? have / per : Infinity);
+  return Math.max(
+    0,
+    Math.floor(
+      Math.min(
+        lim(inventoryQty(g, "lemon"), pc.lemon),
+        lim(inventoryQty(g, "sugar"), pc.sugar),
+        lim(projectedIceAvailable(g), pc.ice),
+        inventoryQty(g, "cup"),
+      ),
+    ),
+  );
+}
+
+/** Stock split by quality grade (for clear standard-vs-premium display). */
+export function inventoryByGrade(g: GameState, item: ItemId): { standard: number; premium: number } {
+  let standard = 0;
+  let premium = 0;
+  for (const lot of g.inventory) {
+    if (lot.item !== item) continue;
+    if (lot.grade === "premium") premium += lot.qty;
+    else standard += lot.qty;
+  }
+  return { standard, premium };
 }
 
 export function netWorth(g: GameState): number {
@@ -286,7 +376,9 @@ export function salesForecast(g: GameState): SalesForecast {
 
   const low = Math.round(Math.min(crowdLow, capacity, stockCups));
   const high = Math.round(Math.min(crowdHigh, capacity, stockCups));
-  const price = primaryProduct(g).recipe.pricePerCup;
+  // Revenue uses the blended price across the expected menu split (a 2nd, pricier
+  // drink lifts the average take per cup).
+  const price = blendedPrice(g);
   return {
     crowd,
     crowdLow: Math.round(crowdLow),

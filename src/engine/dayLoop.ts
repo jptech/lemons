@@ -646,6 +646,18 @@ export class DaySim {
         ice: Math.floor(qtyOf(this.inv, "ice")),
         cup: Math.floor(qtyOf(this.inv, "cup")),
       },
+      products: this.menuIds.map((id) => {
+        const pr = this.prods[id]!;
+        const def = PRODUCT_BY_ID[id];
+        return {
+          id,
+          icon: def?.icon ?? "🥤",
+          name: def?.name ?? id,
+          pool: Math.floor(pr.pool),
+          sold: pr.served,
+          price: pr.price,
+        };
+      }),
       queue: this.queue.slice(0, 12).map((c) => ({
         id: c.id,
         archetype: c.arch.id,
@@ -666,6 +678,9 @@ export class DaySim {
         state: s.state,
         progress: s.state === "idle" ? 0 : clamp(1 - s.ticksLeft / s.taskTime, 0, 1),
         ...(s.state === "serving" && s.customer ? { servingIcon: s.customer.arch.icon } : {}),
+        ...(s.state === "making" && s.makeProduct
+          ? { makeIcon: PRODUCT_BY_ID[s.makeProduct]?.icon ?? "🥤" }
+          : {}),
       })),
       isOver: this.over,
     };

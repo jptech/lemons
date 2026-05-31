@@ -261,3 +261,16 @@ Tagged by effort. Pulled from the theme review; trim/expand as we go.
   (defaults preserve classic). Migration 6→7 wraps the old singular fields into
   `products.classic` and seeds the menu. Tests in `test/menu.test.ts`.
   (More products + snack add-ons come in Phase 2 / E₊.)
+
+- **E₀ refinements — grade clarity, per-product forecasting, live split.**
+  - **Standard vs premium stock**: lots already carry grade and spoil/age as
+    distinct lots (verified by test); the Stock panel now shows the split
+    ("74 standard · ✨ 50 premium") via `inventoryByGrade`.
+  - **Per-product forecasting**: `productSplit` estimates each drink's share of
+    sales from archetype-mix × product appeal (customers buy either but lean by
+    type — e.g. kids skew pink). The Stock forecast (`servableCups`) now blends
+    both products' shared-ingredient demand by that split, and revenue uses a
+    `blendedPrice`. Each product editor shows its "~X% of sales".
+  - **Live day stats**: `SimSnapshot.products` carries per-product pool + cups
+    sold; the sim shows a **Menu** strip (sold/ready per drink) and a brew icon
+    over a station making each drink (`StationView.makeIcon`).

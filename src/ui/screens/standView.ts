@@ -316,6 +316,11 @@ export class StandView {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(st.kind === "player" ? "🧑" : "🧑‍🍳", x, headY);
+      // Show which drink is being brewed (a small icon above a "making" station).
+      if (st.state === "making" && st.makeIcon) {
+        ctx.font = "16px serif";
+        ctx.fillText(st.makeIcon, x, headY - 30);
+      }
     });
   }
 

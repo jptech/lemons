@@ -4,6 +4,7 @@ import { getSettings } from "../../store/settings";
 import { WEATHER_ICON, WEATHER_LABEL } from "../../data/weather";
 import { SimController, type Speed } from "../../loop/gameLoop";
 import { derive, inventoryQty, type SimSnapshot } from "../../engine";
+import { PRODUCT_BY_ID } from "../../data/products";
 import { h } from "../dom";
 import { button } from "../components";
 import { clock, money, moneyShort } from "../format";
@@ -87,6 +88,26 @@ export function renderSimulation(s: AppState): HTMLElement {
     ...gauges.map((g) => g.el),
   ]);
 
+  // Per-product live stats (only when more than one drink is on the menu).
+  const showProducts = game.menu.length > 1;
+  const productEls = showProducts
+    ? game.menu.map((id) => {
+        const def = PRODUCT_BY_ID[id];
+        const soldEl = h("span.num", {}, "0");
+        const poolEl = h("span.num", {}, "0");
+        const el = h("div.simprod", {}, [
+          h("span.simprod__icon", {}, def?.icon ?? "🥤"),
+          h("span.simprod__name", {}, def?.name ?? id),
+          h("span.simprod__stat", {}, [soldEl, h("span.muted", {}, " sold")]),
+          h("span.simprod__stat", {}, [poolEl, h("span.muted", {}, " ready")]),
+        ]);
+        return { id, soldEl, poolEl, el };
+      })
+    : [];
+  const productStrip = showProducts
+    ? h("div.sim__products", {}, [h("span.sim__stock-label.muted", {}, "Menu"), ...productEls.map((p) => p.el)])
+    : null;
+
   const el = h("main.screen.sim", {}, [
     h("div.sim__stage", {}, [
       canvas,
@@ -105,6 +126,7 @@ export function renderSimulation(s: AppState): HTMLElement {
       h("div.hud__progress", {}, [h("div.meter", {}, [progressFill])]),
     ]),
     stockStrip,
+    productStrip,
     speedbar,
   ]);
 
@@ -129,6 +151,13 @@ export function renderSimulation(s: AppState): HTMLElement {
           const f = Math.max(0, Math.min(1, cur / g.initial));
           g.fillEl.style.width = `${f * 100}%`;
           g.fillEl.style.background = f < 0.12 ? "var(--c-coral)" : f < 0.35 ? "var(--c-sun)" : "var(--c-mint)";
+        }
+        for (const p of productEls) {
+          const sp = snap.products.find((x) => x.id === p.id);
+          if (sp) {
+            p.soldEl.textContent = String(sp.sold);
+            p.poolEl.textContent = String(sp.pool);
+          }
         }
       },
       onDone: (sim) => {

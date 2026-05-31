@@ -294,9 +294,11 @@ function productEditor(g: GameState, productId: ProductId): HTMLElement {
       onInput: (v) => actions.setRecipe({ [key]: v }, productId),
     });
 
+  const share = multi ? sel.productSplit(g).find((s) => s.id === productId)?.fraction ?? 0 : 0;
   const header = multi
     ? h("div.product-head", {}, [
         h("strong", {}, `${def.icon} ${def.name}`),
+        h("span.product-share.muted", { title: "Expected share of today's sales" }, `~${Math.round(share * 100)}% of sales`),
         isPrimary
           ? h("span.pill.product-tag", {}, "primary")
           : button("✕ Remove", () => actions.toggleMenuProduct(productId), { size: "sm", variant: "ghost" }),
@@ -427,6 +429,7 @@ function stockRow(g: GameState, row: (typeof STOCK_ROWS)[number]): HTMLElement {
   const grade: ItemGrade = (hasPremium && selectedGrade[row.item]) || "standard";
   const price = itemBuyPrice(g, row.item, grade);
   const slotsUsed = have * TUNING.SLOT_COST[row.item];
+  const byGrade = sel.inventoryByGrade(g, row.item);
   const eventSpiked =
     row.item === "lemon" &&
     g.activeEventId != null &&
@@ -464,6 +467,13 @@ function stockRow(g: GameState, row: (typeof STOCK_ROWS)[number]): HTMLElement {
         trendChip,
         ` · ${row.note(g)} · ${slotsUsed.toFixed(1)} slots`,
       ]),
+      hasPremium && byGrade.premium > 0
+        ? h("span.grade-split", {}, [
+            h("span.grade-split__std", {}, `${byGrade.standard} standard`),
+            " · ",
+            h("span.grade-split__prem", {}, `✨ ${byGrade.premium} premium`),
+          ])
+        : null,
       gradeToggle,
       grade === "premium"
         ? h("span.grade-note.pos", {}, `✨ premium — up to +${Math.round(TUNING.GRADE_QUALITY_BONUS * 100)}% taste`)

@@ -9,6 +9,7 @@ import {
   productStateOf,
   type GameState,
 } from "../src/engine";
+import { inventoryByGrade, productSplit, servableCups } from "../src/store/selectors";
 
 function stocked(s: GameState): GameState {
   s = buyStock(s, "lemon", 120);
@@ -84,5 +85,52 @@ describe("menu foundation", () => {
     expect(next.products.classic.qualityScoreEMA).toBeGreaterThan(
       next.products.pink.qualityScoreEMA,
     );
+  });
+});
+
+describe("standard vs premium stock & per-product forecasting", () => {
+  test("spoilage preserves ingredient grade — lots age as distinct grades", () => {
+    let s = newGame(3, "sandbox");
+    s = buyStock(s, "lemon", 20, "standard");
+    s = buyStock(s, "lemon", 20, "premium");
+    // No cups bought → nothing can be sold → lemons simply age overnight.
+    const next = simulateDay(s).state;
+    const lemonLots = next.inventory.filter((l) => l.item === "lemon");
+    expect(lemonLots.length).toBe(2); // standard + premium kept separate
+    expect(lemonLots.every((l) => l.ageDays === 1)).toBe(true);
+    expect(lemonLots.some((l) => l.grade === "premium")).toBe(true);
+    expect(lemonLots.some((l) => (l.grade ?? "standard") === "standard")).toBe(true);
+  });
+
+  test("inventoryByGrade reports the standard/premium split", () => {
+    let s = newGame(1, "sandbox");
+    s = buyStock(s, "lemon", 30, "standard");
+    s = buyStock(s, "lemon", 10, "premium");
+    const split = inventoryByGrade(s, "lemon");
+    expect(split.standard).toBe(30);
+    expect(split.premium).toBe(10);
+  });
+
+  test("productSplit sums to 1 and gives the novelty drink a real share", () => {
+    let s = newGame(1, "sandbox");
+    s = toggleMenuProduct(s, "pink");
+    const split = productSplit(s);
+    expect(split.reduce((a, b) => a + b.fraction, 0)).toBeCloseTo(1, 6);
+    const pink = split.find((x) => x.id === "pink");
+    expect(pink?.fraction).toBeGreaterThan(0.1);
+    expect(pink?.fraction).toBeLessThan(0.9);
+  });
+
+  test("servableCups accounts for both products sharing the same stock", () => {
+    let oneP = newGame(1, "sandbox");
+    oneP = buyStock(oneP, "lemon", 80);
+    oneP = buyStock(oneP, "sugar", 80);
+    oneP = buyStock(oneP, "ice", 120);
+    oneP = buyStock(oneP, "cup", 200);
+    expect(servableCups(oneP)).toBeGreaterThan(0);
+    // With a second (sweeter, more-sugar) product on the menu, the same stock
+    // still yields a sensible, positive cup estimate.
+    const twoP = toggleMenuProduct(oneP, "pink");
+    expect(servableCups(twoP)).toBeGreaterThan(0);
   });
 });

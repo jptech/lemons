@@ -354,6 +354,17 @@ export interface StationView {
   state: "idle" | "serving" | "making";
   progress: number; // 0..1
   servingIcon?: string; // archetype icon of the customer being served
+  makeIcon?: string; // product icon of the batch being brewed (when making)
+}
+
+/** Live per-product stats for the day view (pool ready + cups sold so far). */
+export interface ProductLiveView {
+  id: ProductId;
+  icon: string;
+  name: string;
+  pool: number; // cups ready to serve
+  sold: number; // cups sold so far today
+  price: number;
 }
 
 export interface SimSnapshot {
@@ -368,6 +379,8 @@ export interface SimSnapshot {
   pitcherPool: number;
   /** Live raw-ingredient stock remaining (drains through the day). */
   stock: { lemon: number; sugar: number; ice: number; cup: number };
+  /** Per-product live stats (pool + cups sold). One entry per active product. */
+  products: ProductLiveView[];
   queue: QueueCustomerView[];
   stations: StationView[];
   isOver: boolean;

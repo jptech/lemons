@@ -439,6 +439,22 @@
   font-weight: 700;
   font-size: 0.85rem;
 }
+.product-share {
+  font-size: 0.78rem;
+  font-weight: 800;
+  margin-left: auto;
+  margin-right: var(--sp-2);
+}
+
+/* ---- Stock grade split ---- */
+.grade-split {
+  display: block;
+  font-size: 0.76rem;
+  font-weight: 700;
+  margin-top: 2px;
+}
+.grade-split__std { color: var(--c-ink); opacity: 0.7; }
+.grade-split__prem { color: var(--c-grape, #9775fa); }
 
 /* ---- Sliders ---- */
 .slider {
@@ -856,6 +872,32 @@
   font-size: 0.9rem;
   flex: none;
 }
+.sim__products {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  background: var(--c-cream-card);
+  border: 2px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--sp-2) var(--sp-4);
+  margin-top: var(--sp-2);
+}
+.simprod {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 200px;
+  min-width: 160px;
+}
+.simprod__icon { font-size: 1.2rem; }
+.simprod__name { font-weight: 700; font-size: 0.85rem; }
+.simprod__stat {
+  margin-left: auto;
+  font-size: 0.85rem;
+}
+.simprod__stat:last-child { margin-left: var(--sp-3); }
 .stockgauge {
   flex: 1 1 110px;
   min-width: 90px;
