@@ -6,6 +6,7 @@
  */
 import { createStore, type Store } from "./store";
 import { loadGame, saveGame, hasSave } from "../persistence/saveLoad";
+import { loadSettings, persistSettings, type Settings } from "./settings";
 import { exportSave, importSaveFromFile } from "../persistence/importExport";
 import {
   newGame,
@@ -38,6 +39,8 @@ export interface AppState {
   game: GameState;
   lastResult: DayResult | null;
   toast: string | null;
+  settings: Settings;
+  settingsOpen: boolean;
 }
 
 export function randomSeed(): number {
@@ -51,6 +54,8 @@ export const store: Store<AppState> = createStore<AppState>({
   game: savedGame ?? newGame(randomSeed(), "sandbox"),
   lastResult: null,
   toast: null,
+  settings: loadSettings(),
+  settingsOpen: false,
 });
 
 // --- Autosave (debounced) -------------------------------------------------
@@ -76,11 +81,13 @@ export const actions = {
     store.setState((s) => ({ ...s, screen }));
   },
   startNewGame(mode: GameMode = "sandbox") {
-    store.setState(() => ({
+    store.setState((s) => ({
+      ...s,
       screen: "planning",
       game: newGame(randomSeed(), mode),
       lastResult: null,
       toast: null,
+      settingsOpen: false,
     }));
   },
   continueGame() {
@@ -93,6 +100,21 @@ export const actions = {
   },
   toast(msg: string | null) {
     store.setState((s) => ({ ...s, toast: msg }));
+  },
+
+  // --- settings ---
+  openSettings() {
+    store.setState((s) => ({ ...s, settingsOpen: true }));
+  },
+  closeSettings() {
+    store.setState((s) => ({ ...s, settingsOpen: false }));
+  },
+  setSetting(patch: Partial<Settings>) {
+    store.setState((s) => {
+      const settings = { ...s.settings, ...patch };
+      persistSettings(settings);
+      return { ...s, settings };
+    });
   },
 
   // --- planning reducers ---
@@ -132,6 +154,6 @@ export const actions = {
       actions.toast("Couldn't read that save file.");
       return;
     }
-    store.setState(() => ({ screen: "planning", game, lastResult: null, toast: "Save loaded! 🍋" }));
+    store.setState((s) => ({ ...s, screen: "planning", game, lastResult: null, toast: "Save loaded! 🍋", settingsOpen: false }));
   },
 };

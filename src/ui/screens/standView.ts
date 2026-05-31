@@ -50,6 +50,15 @@ interface Walker {
   phase: number;
 }
 
+/** Weather particle (rain streak / snowflake). */
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+}
+
 export class StandView {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
@@ -60,14 +69,21 @@ export class StandView {
   private sprites = new Map<number, Sprite>();
   private pops: Pop[] = [];
   private walkers: Walker[] = [];
+  private particles: Particle[] = [];
   private last = 0;
   private reduceMotion = false;
+  private weatherFx = true;
 
-  constructor(canvas: HTMLCanvasElement, weather: WeatherDay) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    weather: WeatherDay,
+    opts: { reducedMotion: boolean; weatherFx: boolean } = { reducedMotion: false, weatherFx: true },
+  ) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d")!;
     this.weather = weather;
-    this.reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    this.reduceMotion = opts.reducedMotion;
+    this.weatherFx = opts.weatherFx && !opts.reducedMotion;
     this.resize();
   }
 
@@ -88,10 +104,13 @@ export class StandView {
     return this.H * 0.66;
   }
 
+  private dayProgress = 0;
+
   render(snap: SimSnapshot, events: SimEvent[], now: number) {
     if (this.last === 0) this.last = now;
     const dt = Math.min(64, now - this.last);
     this.last = now;
+    this.dayProgress = snap.minute / Math.max(1, snap.openMinutes);
 
     this.syncSprites(snap);
     this.spawnPops(events);
@@ -104,11 +123,34 @@ export class StandView {
     this.drawStandBack(); // back wall + posts
     this.drawStations(snap); // workers behind the counter…
     this.drawCounter(snap); // …counter front so they peek over it
+    this.drawServed(snap); // customers being handed a cup at the window
     this.drawCanopy(snap); // striped awning resting on the posts + sign
     this.drawQueue();
     this.drawWalkers("back"); // foot traffic strolling the sidewalk
     this.drawWalkers("front"); // happy customers leaving the counter
     this.drawPops();
+    this.drawWeatherFx(dt); // rain / snow overlay
+  }
+
+  /** A customer at the window for each station currently serving. */
+  private drawServed(snap: SimSnapshot) {
+    const ctx = this.ctx;
+    const { left, w, cy } = this.stand();
+    const n = snap.stations.length;
+    const slotW = w / Math.max(1, n);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    snap.stations.forEach((st, i) => {
+      if (st.state !== "serving" || !st.servingIcon) return;
+      const x = left + slotW * i + slotW / 2;
+      const y = cy + 16; // at the counter window, customer side
+      ctx.beginPath();
+      ctx.fillStyle = "#fffdf3";
+      ctx.arc(x, y, 14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = "20px serif";
+      ctx.fillText(st.servingIcon, x, y + 1);
+    });
   }
 
   // Stand geometry (shared by the structure pieces).
@@ -181,14 +223,42 @@ export class StandView {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, this.W, this.H);
 
+    // time-of-day wash: cool in the morning, golden in late afternoon
+    const tod = this.dayProgress;
+    const morning = clamp01((0.28 - tod) / 0.28);
+    const evening = clamp01((tod - 0.62) / 0.38);
+    if (morning > 0) {
+      ctx.fillStyle = `rgba(180,200,255,${0.16 * morning})`;
+      ctx.fillRect(0, 0, this.W, this.H);
+    }
+    if (evening > 0) {
+      const e = ctx.createLinearGradient(0, 0, 0, this.H);
+      e.addColorStop(0, `rgba(255,180,110,${0.28 * evening})`);
+      e.addColorStop(1, `rgba(120,90,140,${0.22 * evening})`);
+      ctx.fillStyle = e;
+      ctx.fillRect(0, 0, this.W, this.H);
+    }
+
+    // sun glow on bright days
+    const c = this.weather.condition;
+    if (c === "sunny" || c === "heatwave" || c === "partly") {
+      const sx = this.W - 44;
+      const sy = 44;
+      const glow = ctx.createRadialGradient(sx, sy, 6, sx, sy, 90);
+      glow.addColorStop(0, c === "heatwave" ? "rgba(255,170,60,0.5)" : "rgba(255,230,120,0.45)");
+      glow.addColorStop(1, "rgba(255,230,120,0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(sx - 90, sy - 90, 180, 180);
+    }
+
     // weather glyph in the corner
     ctx.font = "34px serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(WEATHER_GLYPH[this.weather.condition], this.W - 44, 44);
 
-    // ground
-    ctx.fillStyle = "#c3e8b8";
+    // ground (darkens slightly toward evening)
+    ctx.fillStyle = evening > 0.3 ? "#aacf9e" : "#c3e8b8";
     ctx.fillRect(0, this.counterY() + 54, this.W, this.H);
     ctx.fillStyle = "rgba(0,0,0,0.05)";
     ctx.fillRect(0, this.counterY() + 54, this.W, 3);
@@ -336,7 +406,53 @@ export class StandView {
       ctx.fill();
       ctx.font = "22px serif";
       ctx.fillText(s.icon, s.x, s.y + 1);
+
+      // a little thought bubble for impatient folks
+      if (s.mood === "impatient") {
+        ctx.font = "13px serif";
+        ctx.fillText("💭", s.x + 13, s.y - 15);
+        ctx.font = "10px serif";
+        ctx.fillText("⏳", s.x + 17, s.y - 18);
+      }
     }
+  }
+
+  private drawWeatherFx(dt: number) {
+    if (!this.weatherFx) return;
+    const ctx = this.ctx;
+    const c = this.weather.condition;
+    if (c === "rainy") {
+      for (let i = 0; i < 2; i++) {
+        this.particles.push({ x: Math.random() * this.W, y: -10, vx: -0.03, vy: 0.45 + Math.random() * 0.25, size: 9 + Math.random() * 7 });
+      }
+      ctx.strokeStyle = "rgba(140,170,210,0.55)";
+      ctx.lineWidth = 2;
+      for (const p of this.particles) {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x + p.vx * 8, p.y + p.size);
+        ctx.stroke();
+      }
+    } else if (c === "cold") {
+      if (Math.random() < 0.7) {
+        this.particles.push({ x: Math.random() * this.W, y: -8, vx: (Math.random() - 0.5) * 0.02, vy: 0.04 + Math.random() * 0.05, size: 2 + Math.random() * 3 });
+      }
+      ctx.fillStyle = "rgba(255,255,255,0.92)";
+      for (const p of this.particles) {
+        p.y += p.vy * dt;
+        p.x += Math.sin(p.y * 0.03 + p.size) * 0.25;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      this.particles.length = 0;
+      return;
+    }
+    this.particles = this.particles.filter((p) => p.y < this.H + 14);
+    if (this.particles.length > 220) this.particles.splice(0, this.particles.length - 220);
   }
 
   private drawPops() {
@@ -423,6 +539,10 @@ export class StandView {
 
 function pop(x: number, y: number, text: string, color: string, ttl: number, size: number): Pop {
   return { x, y, text, color, ttl, age: 0, size };
+}
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {

@@ -24,6 +24,9 @@ export function renderMenu(s: AppState): HTMLElement {
       menuCard("🏖️", "New Sandbox", "Endless, open-ended play. Build your stand your way.", () => actions.startNewGame("sandbox"), "sky"),
       menuCard("⬆️", "Load Save", "Import a save file from your device.", () => void actions.importSave(), "ghost"),
     ]),
+    h("div.menu__links", {}, [
+      h("button.menu__link", { onClick: () => actions.openSettings() }, "⚙️ Settings"),
+    ]),
     h("p.menu__foot.muted", {}, "Tip: hot, sunny days sell the most — stock extra ice and watch the forecast."),
   ]);
 }

@@ -18,16 +18,16 @@ export const STAFF_TIERS: readonly StaffDef[] = [
     name: "Barista",
     icon: "👩‍🍳",
     wage: 55,
-    serveSpeedBonus: 0.2,
-    batchSpeedBonus: 0.1,
+    serveSpeedBonus: 0.4,
+    batchSpeedBonus: 0.25,
   },
   {
     tier: 3,
     name: "Manager",
     icon: "🧑‍💼",
     wage: 80,
-    serveSpeedBonus: 0.4,
-    batchSpeedBonus: 0.2,
+    serveSpeedBonus: 0.9,
+    batchSpeedBonus: 0.5,
   },
 ];
 

@@ -1,4 +1,6 @@
-/** A tiny, self-contained confetti burst. Honors prefers-reduced-motion. */
+/** A tiny, self-contained confetti burst. Honors the reduced-motion setting. */
+import { getSettings } from "../store/settings";
+
 const COLORS = ["#ffd43b", "#4dabf7", "#69db7c", "#ff8787", "#9775fa"];
 
 interface Bit {
@@ -13,7 +15,7 @@ interface Bit {
 }
 
 export function confettiBurst(count = 90): void {
-  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  if (getSettings().reducedMotion) return;
 
   const canvas = document.createElement("canvas");
   canvas.className = "confetti-canvas";

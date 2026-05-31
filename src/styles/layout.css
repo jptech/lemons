@@ -39,7 +39,7 @@
 }
 
 .grid--panels {
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .grid--stats {
@@ -57,6 +57,12 @@
 }
 
 /* ---- Responsive ---- */
+@media (max-width: 1040px) {
+  .grid--panels {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 @media (max-width: 820px) {
   .screen {
     padding: var(--sp-3) var(--sp-3) var(--sp-6);

@@ -152,3 +152,49 @@ Tagged by effort. Pulled from the theme review; trim/expand as we go.
 - Stat-block consistency — single-line values (compact `moneyShort` ranges,
   `nowrap`) with subtext pinned to a shared baseline across equal-height grid
   rows; applies to the insight bar, recap stat cards, waste, and lifetime stats.
+- Panel layout pass — Marketing/Staff hire as one-per-line option buttons,
+  Locations rows with a consistent 3-line stat block + centered action, grid
+  shop rows (fixes wide-control alignment), Finance moved to a full-width bar so
+  the panel grid is a balanced fixed 3-col (2 cols ≤1040px, 1 col ≤820px).
+- Feel & options pass:
+  - **Settings** — persisted prefs (`store/settings.ts`, separate localStorage
+    key) in a modal: reduced-motion, weather effects, default speed. Reached
+    from the main menu + topbar ⋯. `getSettings()` is the sync read for the
+    canvas/confetti/loop; the app store mirrors it for reactive UI.
+  - **Transitions/micro-interactions** — screen enter fade-slide (only on actual
+    screen change, via `ui/anim.ts`), count-ups on recap headline stats
+    (`[data-countup]` + `runEnterEffects`), topbar cash pulse on change. All
+    gated by reduced-motion.
+  - **Day comes alive** — time-of-day sky wash (cool morning → golden evening),
+    sun glow on bright days, rain/snow particles (gated by weather-fx),
+    customer shown at the window per serving station (`StationView.servingIcon`),
+    and a 💭⏳ thought bubble over impatient queuers.
+- Recap stat cards — uniform layout so a row lines up: full-width header
+  (label + delta), value, sub line, and a full-width sparkline pinned to the
+  bottom (stretched via `preserveAspectRatio=none` + non-scaling stroke). Every
+  card supplies spark + delta + sub (short single-word labels avoid wrapping).
+- Equipment rows — the wide "🔒 Reach …" unlock requirement moved into the info
+  area as its own orange chip line; the action column stays narrow (price button
+  or a small 🔒), so long requirements no longer squeeze the name/blurb into
+  ugly multi-line wraps. Locked rows are slightly dimmed.
+- Day-view live stock strip — a sleek row below the stage showing each
+  ingredient's count + a depletion bar (green→yellow→red as it runs low); ice
+  carries a ⚙️ ice-maker badge and visibly holds/refills. `SimSnapshot.stock`.
+- Fractional-stock bug — root cause was batch ingredient use computed as
+  `recipe.part × batchSizeMult` (×1.5 / ×2.1 → fractional). Fixed by rounding
+  per-batch ingredient cost to whole units (`batchLemons/Sugar/Ice`), rounding
+  carried leftovers at settlement, and a v3→v4 migration that rounds existing
+  saves. Regression test in progression.test.ts.
+- Ice-maker forecast — the stock estimate now counts the ice maker's full-day
+  output (`projectedIceAvailable = on-hand + iceRegenPerMin × openMinutes`), so
+  an ice-maker stand isn't falsely "stock-limited" on the ice it starts with.
+  The Stock panel's ice row shows "❄️ +N made today". (A linear-rate estimate;
+  good enough without artificially bottlenecking on ice.)
+- Staff tiers — root bug: per-task time was `Math.round(BASE / mult)`, so small
+  speed bonuses (Barista ×1.2 → round(1.67)=2 min, same as Helper) were erased
+  → paying more bought nothing. Fixed with a **fractional work model + carry**:
+  stations track fractional `ticksLeft`/`taskTime` and carry the leftover minute
+  fraction into the next task, so speed multipliers (staff AND equipment) take
+  effect smoothly. Bumped tiers (Barista +40%/+25%, Manager +90%/+50%) and the
+  Staff panel now spells out each tier's perks. Verified: at busy/capacity-bound
+  spots a Manager crew serves ~14–53% more than Helpers. Regression test added.

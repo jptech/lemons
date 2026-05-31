@@ -1,4 +1,5 @@
 import { actions, type AppState } from "../../store/gameStore";
+import { getSettings } from "../../store/settings";
 import * as sel from "../../store/selectors";
 import { EQUIPMENT_LINES } from "../../data/equipment";
 import { STAFF_TIERS } from "../../data/staff";
@@ -40,7 +41,9 @@ const STOCK_ROWS: { item: ItemId; icon: string; name: string; note: (g: GameStat
     name: "Ice",
     note: (g) => {
       const ret = derive(g).iceRetention;
-      return ret > 0 ? `keeps ${Math.round(ret * 100)}% overnight` : "melts overnight";
+      const base = ret > 0 ? `keeps ${Math.round(ret * 100)}% overnight` : "melts overnight";
+      const made = sel.dailyIceProduction(g);
+      return made > 0 ? `${base} · ❄️ +${made} made today` : base;
     },
   },
   { item: "cup", icon: "🥤", name: "Cups", note: () => "never spoils" },
@@ -59,17 +62,37 @@ export function renderPlanning(s: AppState): HTMLElement {
       equipmentPanel(g),
       staffPanel(g),
       locationPanel(g),
-      financePanel(g),
     ]),
+    financeBar(g),
     openBar(g),
   ]);
 }
 
+/** A full-width option button: label on the left, value/price on the right. */
+function optionBtn(
+  label: Child,
+  value: Child,
+  onClick: () => void,
+  opts: { selected?: boolean; variant?: "sky" | "mint" | "ghost"; disabled?: boolean } = {},
+): HTMLElement {
+  const cls = ["btn", "opt-btn"];
+  cls.push(opts.selected ? "btn--mint" : `btn--${opts.variant ?? "ghost"}`);
+  return h(
+    "button." + cls.join("."),
+    { onClick, disabled: opts.disabled ?? false },
+    [h("span.opt-btn__label", {}, label), h("span.opt-btn__value", {}, value)],
+  );
+}
+
 // ---------------------------------------------------------------------------
+let lastCashSeen: number | null = null;
+
 function topbar(g: GameState): HTMLElement {
   const loc = sel.currentLocation(g);
   const f = g.weatherToday.forecast;
   const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][(g.day - 1) % 7];
+  const cashPulse = lastCashSeen !== null && lastCashSeen !== g.cash && !getSettings().reducedMotion;
+  lastCashSeen = g.cash;
   return h("header.topbar", {}, [
     h("div.topbar__brand", {}, [
       h("span.topbar__day", {}, `Day ${g.day}`),
@@ -87,7 +110,7 @@ function topbar(g: GameState): HTMLElement {
     h("div.topbar__money", {}, [
       h("div.stat", {}, [
         h("div.stat__label", {}, "Cash"),
-        h("div.stat__value.num", { class: g.cash < 0 ? "neg" : "" }, money(g.cash)),
+        h("div.stat__value.num", { class: `${g.cash < 0 ? "neg" : ""}${cashPulse ? " pulse" : ""}` }, money(g.cash)),
       ]),
       g.debt > 0
         ? h("div.stat", {}, [h("div.stat__label", {}, "Debt"), h("div.stat__value.num.neg", {}, money(g.debt))])
@@ -103,6 +126,7 @@ function topbar(g: GameState): HTMLElement {
       h("details.menu-pop", {}, [
         h("summary.menu-pop__btn", {}, "⋯"),
         h("div.menu-pop__list", {}, [
+          h("button.menu-pop__item", { onClick: () => actions.openSettings() }, "⚙️ Settings"),
           h("button.menu-pop__item", { onClick: () => actions.exportSave() }, "⬇️ Export save"),
           h("button.menu-pop__item", { onClick: () => void actions.importSave() }, "⬆️ Import save"),
           h("button.menu-pop__item", {
@@ -335,19 +359,14 @@ function marketingPanel(g: GameState): HTMLElement {
     "Marketing",
     h("p.muted.small", {}, "Spend to pull a bigger crowd today and nudge your reputation."),
     h(
-      "div.row.row--wrap",
+      "div.opt-list",
       {},
       MARKETING_TIERS.map((t) =>
-        button(
-          h("div.col", { style: { gap: "0", alignItems: "center" } }, [
-            h("strong", {}, `${t.icon} ${t.name}`),
-            h("span.small", {}, t.spend > 0 ? money(t.spend) : "free"),
-          ]) as Child,
+        optionBtn(
+          `${t.icon} ${t.name}`,
+          t.spend > 0 ? money(t.spend) : "free",
           () => actions.setMarketing(t.spend),
-          {
-            variant: g.marketingSpend === t.spend ? "mint" : "ghost",
-            disabled: t.spend > g.cash + g.marketingSpend,
-          },
+          { selected: g.marketingSpend === t.spend, disabled: t.spend > g.cash + g.marketingSpend },
         ),
       ),
     ),
@@ -366,35 +385,47 @@ function equipmentPanel(g: GameState): HTMLElement {
       EQUIPMENT_LINES.map((line) => {
         const ownedLevel = line.levels.filter((l) => g.ownedEquipmentIds.includes(l.id)).reduce((m, l) => Math.max(m, l.level), 0);
         const next = line.levels.find((l) => l.level === ownedLevel + 1);
-        const current = ownedLevel > 0 ? line.levels.find((l) => l.level === ownedLevel) : undefined;
+        const def = next ?? line.levels.find((l) => l.level === ownedLevel)!;
 
-        return h("div.shop__row", { class: ownedLevel > 0 && !next ? "shop__row--owned" : "" }, [
-          h("div.shop__icon", {}, (next ?? current)!.icon),
+        // Action stays narrow (price / maxed / a small lock); the unlock
+        // requirement goes into the info area where it has room to read.
+        let action: Child;
+        let lockText: string | null = null;
+        let rowClass = "";
+        if (!next) {
+          action = pill("✓ maxed");
+          rowClass = "shop__row--owned";
+        } else {
+          const st = equipmentStatus(g, next.id);
+          if (st.kind === "buyable" || st.kind === "tooExpensive") {
+            action = button(money(next.cost), () => actions.buyEquipment(next.id), { size: "sm", disabled: st.kind === "tooExpensive" });
+          } else {
+            action = h("span.pill.pill--locked", {}, "🔒");
+            rowClass = "shop__row--locked";
+            lockText = st.kind === "locked" ? st.reason : st.kind === "needsPrev" ? `Needs ${st.prevName}` : "Locked";
+          }
+        }
+
+        return h("div.shop__row", { class: rowClass }, [
+          h("div.shop__icon", {}, def.icon),
           h("div.shop__info", {}, [
-            h("strong", {}, [(next ?? current)!.name, ownedLevel > 0 ? h("span.lvl", {}, `Lv.${ownedLevel}`) : null]),
-            h("div.small.muted", {}, (next ?? current)!.blurb),
+            h("strong", {}, [def.name, ownedLevel > 0 ? h("span.lvl", {}, `Lv.${ownedLevel}`) : null]),
+            h("div.small.muted", {}, def.blurb),
+            lockText ? h("div.shop__lock", {}, `🔒 ${lockText}`) : null,
           ]),
-          equipBuyControl(g, next),
+          h("div.shop__action", {}, action),
         ]);
       }),
     ),
   );
 }
 
-function equipBuyControl(g: GameState, next: (typeof EQUIPMENT_LINES)[number]["levels"][number] | undefined): Child {
-  if (!next) return pill("✓ maxed");
-  const st = equipmentStatus(g, next.id);
-  switch (st.kind) {
-    case "buyable":
-    case "tooExpensive":
-      return button(money(next.cost), () => actions.buyEquipment(next.id), { size: "sm", disabled: st.kind === "tooExpensive" });
-    case "needsPrev":
-      return pill("🔒 prev level");
-    case "locked":
-      return h("span.pill.pill--locked", { title: st.reason }, `🔒 ${st.reason}`);
-    default:
-      return pill("✓");
-  }
+// Describe a staff tier's perks from its speed bonuses.
+function staffBenefit(s: { serveSpeedBonus: number; batchSpeedBonus: number }): string {
+  const parts = ["+1 serving station"];
+  if (s.serveSpeedBonus > 0) parts.push(`serves ${Math.round(s.serveSpeedBonus * 100)}% faster`);
+  if (s.batchSpeedBonus > 0) parts.push(`mixes ${Math.round(s.batchSpeedBonus * 100)}% faster`);
+  return parts.join(" · ");
 }
 
 // ---------------------------------------------------------------------------
@@ -403,15 +434,15 @@ function staffPanel(g: GameState): HTMLElement {
   return panel(
     "🧑‍🍳",
     `Staff (${g.staff.length}/${TUNING.STAFF_CAP})`,
-    h("p.muted.small", {}, "Each hire adds a station. Wages are paid every day."),
+    h("p.muted.small", {}, `Each hire adds a serving station (max ${TUNING.STAFF_CAP}). Pricier staff work faster — worth it once your stations are full.`),
     ...g.staff.map((st) =>
       h("div.shop__row", {}, [
         h("div.shop__icon", {}, st.icon),
         h("div.shop__info", {}, [
-          h("strong", {}, st.name),
-          h("div.small.muted", {}, `${money(st.wage)}/day · `),
+          h("strong", {}, [st.name, h("span.lvl", {}, `${money(st.wage)}/day`)]),
+          h("div.small.muted", {}, staffBenefit(st)),
         ]),
-        h("div.row", { style: { gap: "4px" } }, [
+        h("div.shop__action.shop__action--group", {}, [
           button(st.role === "MAKE" ? "🫙 Mixing" : "🥤 Serving", () => actions.setStaffRole(st.id, st.role === "MAKE" ? "SERVE" : "MAKE"), {
             size: "sm",
             variant: "ghost",
@@ -421,19 +452,22 @@ function staffPanel(g: GameState): HTMLElement {
       ]),
     ),
     full
-      ? null
+      ? h("p.muted.small", {}, "Your crew is full.")
       : h(
-          "div.row.row--wrap",
+          "div.shop",
           {},
           STAFF_TIERS.map((t) =>
-            button(
-              h("div.col", { style: { gap: "0", alignItems: "center" } }, [
-                h("strong", {}, `${t.icon} ${t.name}`),
-                h("span.small", {}, `${money(t.wage)}/day`),
-              ]) as Child,
-              () => actions.hireStaff(t.tier),
-              { variant: "sky", size: "sm" },
-            ),
+            h("div.shop__row", {}, [
+              h("div.shop__icon", {}, t.icon),
+              h("div.shop__info", {}, [
+                h("strong", {}, t.name),
+                h("div.small.muted", {}, staffBenefit(t)),
+              ]),
+              h("div.shop__action.shop__action--group", {}, [
+                h("span.small.muted", {}, `${money(t.wage)}/day`),
+                button("Hire", () => actions.hireStaff(t.tier), { size: "sm", variant: "sky" }),
+              ]),
+            ]),
           ),
         ),
   );
@@ -451,17 +485,22 @@ function locationPanel(g: GameState): HTMLElement {
       LOCATIONS.map((loc) => {
         const here = loc.id === g.currentLocationId;
         const unlocked = g.unlockedLocationIds.includes(loc.id);
-        return h("div.shop__row", { class: here ? "shop__row--owned" : "" }, [
+        const action = here
+          ? pill("📍 here")
+          : unlocked
+            ? button("Move", () => actions.moveLocation(loc.id), { size: "sm", variant: "sky" })
+            : button(`Unlock ${money(loc.unlockCost)}`, () => actions.unlockLocation(loc.id), { size: "sm", disabled: loc.unlockCost > g.cash });
+        return h("div.loc-row", { class: here ? "loc-row--here" : "" }, [
           h("div.shop__icon", {}, loc.icon),
-          h("div.shop__info", {}, [
+          h("div.loc-row__info", {}, [
             h("strong", {}, loc.name),
-            h("div.small.muted", {}, `traffic ~${loc.baseTraffic} · rent ${money(loc.rentPerDay)}/day · tolerates ${money(loc.priceToleranceBase)}`),
+            h("div.loc-row__stats.small.muted", {}, [
+              h("span", {}, `🚶 ~${loc.baseTraffic} traffic`),
+              h("span", {}, `💵 ${money(loc.rentPerDay)}/day rent`),
+              h("span", {}, `🏷️ ${money(loc.priceToleranceBase)} price ceiling`),
+            ]),
           ]),
-          here
-            ? pill("📍 here")
-            : unlocked
-              ? button("Move", () => actions.moveLocation(loc.id), { size: "sm", variant: "sky" })
-              : button(`Unlock ${money(loc.unlockCost)}`, () => actions.unlockLocation(loc.id), { size: "sm", disabled: loc.unlockCost > g.cash }),
+          h("div.loc-row__action", {}, action),
         ]);
       }),
     ),
@@ -469,23 +508,19 @@ function locationPanel(g: GameState): HTMLElement {
 }
 
 // ---------------------------------------------------------------------------
-function financePanel(g: GameState): HTMLElement {
+function financeBar(g: GameState): HTMLElement {
   const c = sel.credit(g);
-  return panel(
-    "🏦",
-    "Finance",
-    h("div.grid.grid--stats", {}, [
-      statBlock("Cash", money(g.cash)),
-      statBlock("Debt", money(g.debt), `${money(c.available)} credit left`),
+  return h("section.panel.finance-bar", {}, [
+    h("div.finance-bar__info", {}, [
+      h("strong", {}, "🏦 Finance"),
+      h("span.muted.small", {}, `Cash ${money(g.cash)} · Debt ${money(g.debt)} · ${money(c.available)} credit left · ${pct(TUNING.LOAN_RATE_PER_DAY)}/day interest`),
     ]),
-    h("p.muted.small", {}, `Loans accrue ${pct(TUNING.LOAN_RATE_PER_DAY)}/day interest. A safety net for a rough patch — or fuel to expand faster.`),
-    h("div.row.row--wrap", {}, [
+    h("div.finance-bar__actions", {}, [
       button("Borrow $100", () => actions.takeLoan(100), { size: "sm", variant: "ghost", disabled: c.available < 100 }),
       button("Borrow $500", () => actions.takeLoan(500), { size: "sm", variant: "ghost", disabled: c.available < 500 }),
-      g.debt > 0 ? button("Repay $100", () => actions.repayLoan(100), { size: "sm", variant: "mint", disabled: g.cash < 1 }) : null,
       g.debt > 0 ? button("Repay all", () => actions.repayLoan(Math.min(g.debt, g.cash)), { size: "sm", variant: "mint", disabled: g.cash < 1 }) : null,
     ]),
-  );
+  ]);
 }
 
 // ---------------------------------------------------------------------------

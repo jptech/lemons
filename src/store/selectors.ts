@@ -85,11 +85,29 @@ export function priceToleranceHint(g: GameState): number {
   );
 }
 
-/** How many pitchers the current stock can brew (limited ingredient). */
+/** Ice you can count on across the whole day = on hand + ice-maker output. */
+export function dailyIceProduction(g: GameState): number {
+  return Math.round(derive(g).iceRegenPerMin * currentLocation(g).openMinutes);
+}
+export function projectedIceAvailable(g: GameState): number {
+  return inventoryQty(g, "ice") + dailyIceProduction(g);
+}
+
+/**
+ * How many pitchers the day's stock can brew (limited by the scarcest
+ * ingredient). Ice counts the maker's full-day output too, so a stand with an
+ * ice maker isn't falsely bottlenecked on the ice it starts the day with.
+ */
 export function pitchersFromStock(g: GameState): number {
   const r = g.recipe;
-  const lim = (item: ItemId, per: number) => (per > 0 ? inventoryQty(g, item) / per : Infinity);
-  return Math.floor(Math.min(lim("lemon", r.lemons), lim("sugar", r.sugar), lim("ice", r.ice)));
+  const lim = (have: number, per: number) => (per > 0 ? have / per : Infinity);
+  return Math.floor(
+    Math.min(
+      lim(inventoryQty(g, "lemon"), r.lemons),
+      lim(inventoryQty(g, "sugar"), r.sugar),
+      lim(projectedIceAvailable(g), r.ice),
+    ),
+  );
 }
 
 /** Cups of lemonade the current stock can ultimately serve (also cup-limited). */

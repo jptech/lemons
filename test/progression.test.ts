@@ -5,12 +5,15 @@ import {
   derive,
   equipmentStatus,
   forecastConfidence,
+  hireStaff,
   newGame,
   setPrice,
   setRecipe,
   simulateDay,
   type GameState,
+  type InventoryLot,
 } from "../src/engine";
+import { pitchersFromStock, projectedIceAvailable } from "../src/store/selectors";
 
 function stocked(s: GameState): GameState {
   s = setRecipe(s, { lemons: 4, sugar: 4, water: 8, ice: 4, pricePerCup: 1.5 });
@@ -47,6 +50,57 @@ describe("equipment progression", () => {
     const st = equipmentStatus(s, "loyalty_1"); // level 1, requires Town Park
     expect(st.kind).toBe("locked");
     if (st.kind === "locked") expect(st.reason).toContain("Park");
+  });
+
+  test("inventory stays whole even with fractional batch multipliers", () => {
+    // Industrial Batch (×2.1) would make 4 × 2.1 = 8.4 lemons/batch under the
+    // old code, leaving fractional stock. It must round to whole units now.
+    let s = newGame(5, "sandbox");
+    s = { ...s, ownedEquipmentIds: ["pitch_2"] };
+    s = setRecipe(s, { lemons: 4, sugar: 4, water: 8, ice: 4, pricePerCup: 1.5 });
+    s = buyStock(s, "lemon", 70);
+    s = buyStock(s, "sugar", 70);
+    s = buyStock(s, "ice", 100);
+    s = buyStock(s, "cup", 150);
+    const { state, result } = simulateDay(s);
+    expect(result.served).toBeGreaterThan(0); // it actually made batches
+    for (const lot of state.inventory) {
+      expect(Number.isInteger(lot.qty)).toBe(true);
+    }
+    for (const v of Object.values(result.leftover)) expect(Number.isInteger(v)).toBe(true);
+  });
+
+  test("the stock forecast counts the ice maker's daily output", () => {
+    let s = newGame(1, "sandbox");
+    s = setRecipe(s, { lemons: 4, sugar: 4, water: 8, ice: 4, pricePerCup: 1.5 });
+    s = buyStock(s, "lemon", 100);
+    s = buyStock(s, "sugar", 100);
+    s = buyStock(s, "cup", 200); // no ice bought
+    expect(pitchersFromStock(s)).toBe(0); // ice-bottlenecked with no maker
+    const withMaker: GameState = { ...s, ownedEquipmentIds: ["icemaker_1"] };
+    expect(projectedIceAvailable(withMaker)).toBeGreaterThan(0);
+    expect(pitchersFromStock(withMaker)).toBeGreaterThan(0); // no longer bottlenecked
+  });
+
+  test("better (pricier) staff serve more — the wage buys real throughput", () => {
+    const plenty: InventoryLot[] = [
+      { item: "lemon", qty: 600, ageDays: 0 },
+      { item: "sugar", qty: 600, ageDays: 0 },
+      { item: "ice", qty: 900, ageDays: 0 },
+      { item: "cup", qty: 1200, ageDays: 0 },
+    ];
+    function servedWith(tier: 1 | 2 | 3): number {
+      // Downtown (high traffic) + huge stock → capacity-bound, so serve speed matters.
+      let s = newGame(123, "sandbox");
+      s = { ...s, currentLocationId: "downtown", inventory: plenty.map((l) => ({ ...l })) };
+      s = hireStaff(s, tier);
+      s = setRecipe(s, { lemons: 4, sugar: 4, water: 8, ice: 4, pricePerCup: 1.5 });
+      return simulateDay(s).result.served;
+    }
+    const helper = servedWith(1);
+    const manager = servedWith(3);
+    expect(helper).toBeGreaterThan(0);
+    expect(manager).toBeGreaterThan(helper); // the manager's speed clearly pays off
   });
 
   test("loyalty program speeds regulars growth", () => {

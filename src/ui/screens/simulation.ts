@@ -1,12 +1,21 @@
 /** Live "open for business" screen: animated canvas stand + HUD + speed control. */
 import { actions, type AppState } from "../../store/gameStore";
+import { getSettings } from "../../store/settings";
 import { WEATHER_ICON, WEATHER_LABEL } from "../../data/weather";
 import { SimController, type Speed } from "../../loop/gameLoop";
-import type { SimSnapshot } from "../../engine";
+import { derive, inventoryQty, type SimSnapshot } from "../../engine";
 import { h } from "../dom";
 import { button } from "../components";
 import { clock, money, moneyShort } from "../format";
 import { StandView } from "./standView";
+
+type StockKey = "lemon" | "sugar" | "ice" | "cup";
+const STOCK_ITEMS: { key: StockKey; icon: string }[] = [
+  { key: "lemon", icon: "🍋" },
+  { key: "sugar", icon: "🍬" },
+  { key: "ice", icon: "🧊" },
+  { key: "cup", icon: "🥤" },
+];
 
 let active: SimController | null = null;
 let view: StandView | null = null;
@@ -57,6 +66,27 @@ export function renderSimulation(s: AppState): HTMLElement {
     button("Skip to end  ⏭️", () => active?.skip(), { size: "sm", variant: "sky" }),
   ]);
 
+  // Live stock readout (drains through the day; ice shows a maker badge).
+  const iceRegen = derive(game).iceRegenPerMin > 0;
+  const gauges = STOCK_ITEMS.map((it) => {
+    const initial = Math.max(1, inventoryQty(game, it.key));
+    const countEl = h("span.stockgauge__count.num", {}, String(Math.floor(inventoryQty(game, it.key))));
+    const fillEl = h("div.meter__fill", { style: { width: "100%", background: "var(--c-mint)" } });
+    const el = h("div.stockgauge", {}, [
+      h("div.stockgauge__head", {}, [
+        h("span.stockgauge__icon", {}, it.icon),
+        countEl,
+        it.key === "ice" && iceRegen ? h("span.stockgauge__regen", { title: "Ice maker is topping up your ice" }, "⚙️") : null,
+      ]),
+      h("div.meter.stockgauge__bar", {}, [fillEl]),
+    ]);
+    return { key: it.key, initial, countEl, fillEl, el };
+  });
+  const stockStrip = h("div.sim__stock", {}, [
+    h("span.sim__stock-label.muted", {}, "Stock"),
+    ...gauges.map((g) => g.el),
+  ]);
+
   const el = h("main.screen.sim", {}, [
     h("div.sim__stage", {}, [
       canvas,
@@ -74,12 +104,13 @@ export function renderSimulation(s: AppState): HTMLElement {
       ]),
       h("div.hud__progress", {}, [h("div.meter", {}, [progressFill])]),
     ]),
+    stockStrip,
     speedbar,
   ]);
 
   // Start once the canvas is in the DOM (so it has a measured size).
   requestAnimationFrame(() => {
-    view = new StandView(canvas, game.weatherToday);
+    view = new StandView(canvas, game.weatherToday, getSettings());
     onResize = () => view?.resize();
     window.addEventListener("resize", onResize);
 
@@ -92,6 +123,13 @@ export function renderSimulation(s: AppState): HTMLElement {
         servedEl.textContent = String(snap.served);
         lostEl.textContent = String(snap.lost);
         progressFill.style.width = `${(snap.minute / snap.openMinutes) * 100}%`;
+        for (const g of gauges) {
+          const cur = snap.stock[g.key];
+          g.countEl.textContent = String(cur);
+          const f = Math.max(0, Math.min(1, cur / g.initial));
+          g.fillEl.style.width = `${f * 100}%`;
+          g.fillEl.style.background = f < 0.12 ? "var(--c-coral)" : f < 0.35 ? "var(--c-sun)" : "var(--c-mint)";
+        }
       },
       onDone: (sim) => {
         const { state, result } = sim.finalize();
@@ -99,7 +137,7 @@ export function renderSimulation(s: AppState): HTMLElement {
         actions.commitDay(state, result);
       },
     });
-    setSpeed(1);
+    setSpeed(getSettings().defaultSpeed);
     active.start();
   });
 

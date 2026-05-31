@@ -179,19 +179,28 @@ export function donut(
 
 /** Tiny inline sparkline (no axes) for stat cards. */
 export function sparkline(values: number[], opts: { color?: string; width?: number; height?: number } = {}): SVGElement {
-  const W = opts.width ?? 72;
-  const H = opts.height ?? 24;
+  const W = opts.width ?? 120;
+  const H = opts.height ?? 26;
   const color = opts.color ?? C.sky;
-  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "sparkline", width: W, height: H });
+  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "sparkline", preserveAspectRatio: "none" });
   if (values.length === 0) return root;
   const min = Math.min(...values);
   const max = Math.max(...values);
   const sx = scaleLinear([0, Math.max(1, values.length - 1)], [2, W - 2]);
   const sy = scaleLinear([min, max === min ? min + 1 : max], [H - 3, 3]);
   const pts: Array<[number, number]> = values.map((v, i) => [sx(i), sy(v)]);
-  root.appendChild(svg("path", { d: pathFrom(pts), fill: "none", stroke: color, "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }));
-  const last = pts[pts.length - 1]!;
-  root.appendChild(svg("circle", { cx: last[0], cy: last[1], r: 2.5, fill: color }));
+  // non-scaling-stroke keeps the line crisp when the SVG is stretched to fit.
+  root.appendChild(
+    svg("path", {
+      d: pathFrom(pts),
+      fill: "none",
+      stroke: color,
+      "stroke-width": 2.5,
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      "vector-effect": "non-scaling-stroke",
+    }),
+  );
   return root;
 }
 

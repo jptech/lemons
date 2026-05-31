@@ -101,14 +101,25 @@ function recapHeader(r: DayResult, g: GameState): HTMLElement {
   ]);
 }
 
+// A value element that counts up from zero on screen enter (final text preset).
+function cu(n: number, kind: "int" | "money" | "signed", text: string): Child {
+  return h("span", { "data-countup": String(n), "data-countup-fmt": kind }, text);
+}
+
+function repTier(rep: number): string {
+  return rep >= 80 ? "famous" : rep >= 60 ? "well-loved" : rep >= 40 ? "well-liked" : rep >= 20 ? "getting known" : "new in town";
+}
+
 // ---------------------------------------------------------------------------
+// Every card has the same shape: short label + sparkline, value, foot (delta + sub).
 function statRow(r: DayResult, prev: DayResult | null, recent: DayResult[]): HTMLElement {
   const lost = r.balked + r.reneged;
+  const rep = Math.round(r.reputationEnd);
   return h("div.grid.grid--cards", {}, [
     statCard({
       icon: "💰",
       label: "Profit",
-      value: signed(r.profit),
+      value: cu(r.profit, "signed", signed(r.profit)),
       delta: prev ? r.profit - prev.profit : undefined,
       deltaText: prev ? money(Math.abs(r.profit - prev.profit)) : undefined,
       spark: recent.map((d) => d.profit),
@@ -117,8 +128,8 @@ function statRow(r: DayResult, prev: DayResult | null, recent: DayResult[]): HTM
     }),
     statCard({
       icon: "🥤",
-      label: "Cups sold",
-      value: String(r.cupsSold),
+      label: "Cups",
+      value: cu(r.cupsSold, "int", String(r.cupsSold)),
       delta: prev ? r.cupsSold - prev.cupsSold : undefined,
       spark: recent.map((d) => d.cupsSold),
       sparkColor: C.sky,
@@ -126,35 +137,41 @@ function statRow(r: DayResult, prev: DayResult | null, recent: DayResult[]): HTM
     }),
     statCard({
       icon: "⭐",
-      label: "Avg review",
+      label: "Review",
       value: stars(r.avgStars),
       delta: prev ? Math.round((r.avgStars - prev.avgStars) * 10) / 10 : undefined,
       deltaText: prev ? Math.abs(Math.round((r.avgStars - prev.avgStars) * 10) / 10).toFixed(1) : undefined,
       spark: recent.map((d) => d.avgStars),
       sparkColor: C.sun,
-      sub: r.avgStars.toFixed(1),
+      sub: `${r.avgStars.toFixed(1)} avg stars`,
     }),
     statCard({
       icon: "🪙",
       label: "Tips",
-      value: money(r.tips),
+      value: cu(r.tips, "money", money(r.tips)),
+      delta: prev ? Math.round((r.tips - prev.tips) * 100) / 100 : undefined,
+      deltaText: prev ? money(Math.abs(r.tips - prev.tips)) : undefined,
       spark: recent.map((d) => d.tips),
       sparkColor: C.grape,
+      sub: r.cupsSold > 0 ? `${money(r.tips / r.cupsSold)} / cup` : "no sales",
     }),
     statCard({
       icon: "📣",
       label: "Reputation",
-      value: String(Math.round(r.reputationEnd)),
+      value: cu(rep, "int", String(rep)),
       delta: prev ? Math.round(r.reputationEnd - prev.reputationEnd) : undefined,
       spark: recent.map((d) => d.reputationEnd),
       sparkColor: C.coral,
+      sub: repTier(rep),
     }),
     statCard({
       icon: "💨",
       label: "Lost",
-      value: String(lost),
+      value: cu(lost, "int", String(lost)),
       upIsGood: false,
       delta: prev ? lost - (prev.balked + prev.reneged) : undefined,
+      spark: recent.map((d) => d.balked + d.reneged),
+      sparkColor: "#adb5bd",
       sub: lost > 0 ? "queue / sold out" : "served everyone!",
     }),
   ]);

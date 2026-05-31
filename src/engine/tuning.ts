@@ -5,7 +5,7 @@
 import type { Condition, ItemId } from "./types";
 
 export const TUNING = {
-  SCHEMA_VERSION: 3,
+  SCHEMA_VERSION: 4,
   STARTING_CASH: 80,
 
   // --- Day structure ---

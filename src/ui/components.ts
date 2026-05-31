@@ -122,7 +122,12 @@ export interface StatCardOpts {
   sub?: Child;
 }
 
-/** A headline stat: big number + delta-vs-yesterday + inline sparkline. */
+/**
+ * A headline stat card with a uniform layout: a full-width header (label +
+ * delta-vs-yesterday), the big value, a sub line, and a full-width sparkline
+ * pinned to the bottom. Every card is the same shape regardless of which
+ * optional bits are present, so a row of them lines up cleanly.
+ */
 export function statCard(o: StatCardOpts): HTMLElement {
   const upGood = o.upIsGood ?? true;
   let deltaEl: Child = null;
@@ -132,11 +137,16 @@ export function statCard(o: StatCardOpts): HTMLElement {
     deltaEl = h("span.statcard__delta", { class: good ? "pos" : "neg" }, `${up ? "▲" : "▼"} ${o.deltaText ?? Math.abs(o.delta)}`);
   }
   return h("div.statcard", {}, [
-    h("div.statcard__top", {}, [
+    h("div.statcard__head", {}, [
       h("span.statcard__label", {}, [o.icon ? `${o.icon} ` : "", o.label]),
-      o.spark && o.spark.length > 1 ? (sparkline(o.spark, { color: o.sparkColor }) as unknown as Child) : null,
+      deltaEl,
     ]),
     h("div.statcard__value.num", {}, o.value),
-    h("div.statcard__foot", {}, [deltaEl, o.sub ? h("span.muted", {}, o.sub) : null]),
+    h("div.statcard__sub.muted", {}, o.sub ?? ""),
+    h(
+      "div.statcard__spark",
+      {},
+      o.spark && o.spark.length > 1 ? (sparkline(o.spark, { color: o.sparkColor }) as unknown as Child) : null,
+    ),
   ]);
 }

@@ -24,6 +24,13 @@ const MIGRATIONS: Record<number, (g: GameState) => GameState> = {
     ownedEquipmentIds: (g.ownedEquipmentIds ?? []).map((id) => LEGACY_EQUIPMENT_MAP[id] ?? id),
     priceFeedback: g.priceFeedback ?? 0,
   }),
+  // 3 -> 4: round any fractional stock left by the old fractional-batch bug.
+  3: (g) => ({
+    ...g,
+    inventory: (g.inventory ?? [])
+      .map((lot) => ({ ...lot, qty: Math.round(lot.qty) }))
+      .filter((lot) => lot.qty > 0),
+  }),
 };
 
 function migrate(game: GameState, fromVersion: number): GameState {

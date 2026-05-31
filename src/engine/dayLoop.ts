@@ -55,7 +55,13 @@ interface Station {
   serveMult: number;
   batchMult: number;
   state: "idle" | "serving" | "making";
+  /** Whole/fractional minutes left on the current task. */
   ticksLeft: number;
+  /** Minutes this task takes in total (for the progress bar). */
+  taskTime: number;
+  /** Leftover time from finishing a task mid-minute, applied to the next one
+   *  so a faster worker's speed isn't lost to integer-minute rounding. */
+  carry: number;
   customer: SimCustomer | null;
 }
 
@@ -136,6 +142,10 @@ export class DaySim {
 
   private readonly batchPitchers: number;
   private readonly cupsPerBatch: number;
+  // Whole-unit ingredient cost of one batch (no fractional stock — see note).
+  private readonly batchLemons: number;
+  private readonly batchSugar: number;
+  private readonly batchIce: number;
 
   constructor(state: GameState) {
     this.state = state;
@@ -180,6 +190,12 @@ export class DaySim {
     this.inv = state.inventory.map((l) => ({ ...l }));
     this.batchPitchers = this.derived.batchSizeMult;
     this.cupsPerBatch = Math.max(1, Math.round(TUNING.CUPS_PER_PITCHER * this.derived.batchSizeMult));
+    // Round per-batch ingredient use to whole units so inventory stays integer
+    // even with fractional batch-size multipliers (e.g. ×1.5, ×2.1).
+    const r = state.recipe;
+    this.batchLemons = Math.round(r.lemons * this.batchPitchers);
+    this.batchSugar = Math.round(r.sugar * this.batchPitchers);
+    this.batchIce = Math.round(r.ice * this.batchPitchers);
     this.stations = this.buildStations();
   }
 
@@ -197,6 +213,8 @@ export class DaySim {
         batchMult: this.derived.batchSpeedMult,
         state: "idle",
         ticksLeft: 0,
+        taskTime: 1,
+        carry: 0,
         customer: null,
       },
     ];
@@ -209,6 +227,8 @@ export class DaySim {
         batchMult: this.derived.batchSpeedMult + st.batchSpeedBonus,
         state: "idle",
         ticksLeft: 0,
+        taskTime: 1,
+        carry: 0,
         customer: null,
       });
     });
@@ -244,17 +264,19 @@ export class DaySim {
     const arrivals = this.rng.poisson(lambda);
     for (let i = 0; i < arrivals; i++) this.arrive(events);
 
-    // 2. Advance busy stations
+    // 2. Advance busy stations by one minute (fractional; carry the overshoot
+    //    so faster workers actually finish sooner instead of rounding up).
     for (const st of this.stations) {
       if (st.state === "idle") continue;
-      st.ticksLeft--;
-      if (st.ticksLeft > 0) continue;
+      st.ticksLeft -= 1;
+      if (st.ticksLeft > 1e-9) continue;
       if (st.state === "serving") {
         this.finalizeSale(st, events);
       } else {
         this.pool += this.cupsPerBatch;
         events.push({ type: "batch", cups: this.cupsPerBatch });
       }
+      st.carry = Math.min(st.taskTime, -st.ticksLeft); // leftover minute fraction
       st.state = "idle";
       st.customer = null;
     }
@@ -356,29 +378,28 @@ export class DaySim {
   }
 
   private canMakeBatch(): boolean {
-    const r = this.state.recipe;
     return (
-      qtyOf(this.inv, "lemon") + 1e-9 >= r.lemons * this.batchPitchers &&
-      qtyOf(this.inv, "sugar") + 1e-9 >= r.sugar * this.batchPitchers &&
-      qtyOf(this.inv, "ice") + 1e-9 >= r.ice * this.batchPitchers
+      qtyOf(this.inv, "lemon") >= this.batchLemons &&
+      qtyOf(this.inv, "sugar") >= this.batchSugar &&
+      qtyOf(this.inv, "ice") >= this.batchIce
     );
   }
 
   private firstMissingForBatch(): ItemId | null {
-    const r = this.state.recipe;
-    if (qtyOf(this.inv, "lemon") < r.lemons * this.batchPitchers) return "lemon";
-    if (qtyOf(this.inv, "sugar") < r.sugar * this.batchPitchers) return "sugar";
-    if (qtyOf(this.inv, "ice") < r.ice * this.batchPitchers) return "ice";
+    if (qtyOf(this.inv, "lemon") < this.batchLemons) return "lemon";
+    if (qtyOf(this.inv, "sugar") < this.batchSugar) return "sugar";
+    if (qtyOf(this.inv, "ice") < this.batchIce) return "ice";
     return null;
   }
 
   private startMake(st: Station) {
-    const r = this.state.recipe;
-    consume(this.inv, "lemon", r.lemons * this.batchPitchers);
-    consume(this.inv, "sugar", r.sugar * this.batchPitchers);
-    consume(this.inv, "ice", r.ice * this.batchPitchers);
+    consume(this.inv, "lemon", this.batchLemons);
+    consume(this.inv, "sugar", this.batchSugar);
+    consume(this.inv, "ice", this.batchIce);
     st.state = "making";
-    st.ticksLeft = Math.max(1, Math.round(TUNING.BATCH_TIME / st.batchMult));
+    st.taskTime = TUNING.BATCH_TIME / st.batchMult;
+    st.ticksLeft = Math.max(0.001, st.taskTime - st.carry);
+    st.carry = 0;
   }
 
   private startServe(st: Station) {
@@ -387,7 +408,9 @@ export class DaySim {
     consume(this.inv, "cup", 1);
     st.state = "serving";
     st.customer = c;
-    st.ticksLeft = Math.max(1, Math.round(TUNING.SERVE_BASE / st.serveMult));
+    st.taskTime = TUNING.SERVE_BASE / st.serveMult;
+    st.ticksLeft = Math.max(0.001, st.taskTime - st.carry);
+    st.carry = 0;
   }
 
   private finalizeSale(st: Station, events: SimEvent[]) {
@@ -462,6 +485,12 @@ export class DaySim {
       served: this.served,
       lost: this.balked + this.reneged,
       pitcherPool: this.pool,
+      stock: {
+        lemon: Math.floor(qtyOf(this.inv, "lemon")),
+        sugar: Math.floor(qtyOf(this.inv, "sugar")),
+        ice: Math.floor(qtyOf(this.inv, "ice")),
+        cup: Math.floor(qtyOf(this.inv, "cup")),
+      },
       queue: this.queue.slice(0, 12).map((c) => ({
         id: c.id,
         archetype: c.arch.id,
@@ -480,12 +509,8 @@ export class DaySim {
         kind: s.kind,
         role: s.role,
         state: s.state,
-        progress:
-          s.state === "idle"
-            ? 0
-            : s.state === "serving"
-              ? 1 - s.ticksLeft / Math.max(1, Math.round(TUNING.SERVE_BASE / s.serveMult))
-              : 1 - s.ticksLeft / Math.max(1, Math.round(TUNING.BATCH_TIME / s.batchMult)),
+        progress: s.state === "idle" ? 0 : clamp(1 - s.ticksLeft / s.taskTime, 0, 1),
+        ...(s.state === "serving" && s.customer ? { servingIcon: s.customer.arch.icon } : {}),
       })),
       isOver: this.over,
     };
@@ -632,12 +657,12 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
       if (keep > 0.5) nextInv.push({ item: "ice", qty: Math.round(keep), ageDays: 0 });
       continue;
     }
-    const aged = { ...lot, ageDays: lot.ageDays + 1 };
+    const aged = { ...lot, qty: Math.round(lot.qty), ageDays: lot.ageDays + 1 };
     if (lot.item === "lemon" && aged.ageDays >= TUNING.LEMON_SHELF_LIFE) {
       spoiledLemons += aged.qty;
       continue;
     }
-    nextInv.push(aged);
+    if (aged.qty > 0) nextInv.push(aged);
   }
 
   // Stock carried into tomorrow (post-spoilage).

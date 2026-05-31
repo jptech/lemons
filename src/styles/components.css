@@ -504,7 +504,8 @@
   flex-direction: column;
 }
 .shop__row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: var(--sp-3);
   padding: var(--sp-2) 0;
@@ -522,7 +523,103 @@
   text-align: center;
 }
 .shop__info {
-  flex: 1;
+  min-width: 0;
+}
+.shop__action {
+  justify-self: end;
+}
+.shop__action--group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.shop__lock {
+  display: inline-block;
+  margin-top: 3px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  color: #e8590c;
+  background: #fff4e6;
+  border-radius: var(--radius-pill);
+  padding: 1px 9px;
+}
+.shop__row--locked {
+  opacity: 0.9;
+}
+.shop__row--locked .shop__icon {
+  filter: grayscale(0.45);
+}
+
+/* ---- Full-width option buttons (marketing / staff hire) ---- */
+.opt-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.opt-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  text-align: left;
+}
+.opt-btn__label {
+  font-weight: 700;
+}
+.opt-btn__value {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
+/* ---- Location rows (consistent 3-line stats + centered action) ---- */
+.loc-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0;
+  border-top: 1px dashed var(--c-line);
+}
+.loc-row:first-child {
+  border-top: none;
+}
+.loc-row--here {
+  opacity: 0.6;
+}
+.loc-row__info {
+  min-width: 0;
+}
+.loc-row__stats {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 2px;
+}
+.loc-row__action {
+  justify-self: end;
+}
+
+/* ---- Finance bar (full-width) ---- */
+.finance-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3) var(--sp-4);
+  margin-top: var(--sp-4);
+}
+.finance-bar__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.finance-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
 }
 
 /* ---- Open-for-business bar ---- */
@@ -610,6 +707,52 @@
   background: rgba(255, 255, 255, 0.4);
 }
 
+/* ---- Live stock strip ---- */
+.sim__stock {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  background: var(--c-cream-card);
+  border: 2px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--sp-2) var(--sp-4);
+}
+.sim__stock-label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.9rem;
+  flex: none;
+}
+.stockgauge {
+  flex: 1 1 110px;
+  min-width: 90px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stockgauge__head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.stockgauge__icon {
+  font-size: 1.1rem;
+}
+.stockgauge__count {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.stockgauge__regen {
+  margin-left: auto;
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+.stockgauge__bar {
+  height: 8px;
+}
+
 /* ---- Speed bar ---- */
 .speedbar {
   display: flex;
@@ -674,35 +817,46 @@
   gap: 2px;
   height: 100%;
 }
-.statcard__top {
+.statcard__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-2);
+  min-height: 20px;
 }
 .statcard__label {
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   font-weight: 800;
   color: var(--c-ink-soft);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.statcard__delta {
+  flex: none;
+  font-weight: 800;
+  font-size: 0.78rem;
 }
 .statcard__value {
   font-size: 1.6rem;
   line-height: 1.15;
   white-space: nowrap;
 }
-.statcard__foot {
-  margin-top: auto;
-  padding-top: 2px;
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--sp-1) var(--sp-2);
-  font-size: 0.8rem;
+.statcard__sub {
+  font-size: 0.78rem;
+  min-height: 1.1em; /* reserve a line so cards stay aligned even when empty */
 }
-.statcard__delta {
-  font-weight: 800;
+.statcard__spark {
+  margin-top: auto; /* pin the trend to the bottom across the row */
+  padding-top: var(--sp-2);
+  min-height: 28px;
+}
+.statcard__spark .sparkline {
+  width: 100%;
+  height: 26px;
 }
 
 /* ---- Charts ---- */
@@ -963,6 +1117,181 @@
 .goal-chip {
   background: linear-gradient(160deg, #e7f5ff, #d0ebff);
   border-color: var(--c-sky-deep);
+}
+
+/* ---- Screen transition + value pulse ---- */
+.screen--enter {
+  animation: screen-enter 280ms var(--ease-bounce);
+}
+@keyframes screen-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.pulse {
+  animation: pulse-pop 480ms var(--ease-bounce);
+  transform-origin: left center;
+}
+@keyframes pulse-pop {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.16);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* ---- Settings modal ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-4);
+  background: rgba(58, 46, 32, 0.45);
+  animation: fade-in 160ms ease;
+}
+.modal {
+  width: min(440px, 100%);
+  background: var(--c-cream-card);
+  border: 2px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--sp-5);
+  animation: modal-in 240ms var(--ease-bounce);
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-3);
+}
+.modal__head h2 {
+  font-size: 1.3rem;
+}
+.modal__close {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--c-cream);
+  border: 2px solid var(--c-line);
+  font-weight: 800;
+}
+.modal__close:hover {
+  background: var(--c-coral);
+  color: #fff;
+}
+.modal__foot {
+  margin-top: var(--sp-4);
+  text-align: center;
+}
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0;
+  border-top: 1px dashed var(--c-line);
+}
+.setting:first-of-type {
+  border-top: none;
+}
+.setting__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.setting__text strong {
+  font-family: var(--font-display);
+}
+
+/* toggle switch */
+.switch {
+  flex: none;
+  width: 52px;
+  height: 30px;
+  border-radius: var(--radius-pill);
+  background: var(--c-line);
+  position: relative;
+  transition: background var(--t-fast);
+}
+.switch--on {
+  background: var(--c-mint-deep);
+}
+.switch__knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--t-med) var(--ease-bounce);
+}
+.switch--on .switch__knob {
+  transform: translateX(22px);
+}
+
+/* segmented control */
+.seg {
+  display: flex;
+  gap: 4px;
+  background: var(--c-cream);
+  border: 2px solid var(--c-line);
+  border-radius: var(--radius-pill);
+  padding: 3px;
+}
+.seg__btn {
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.seg__btn--on {
+  background: var(--c-sun);
+  box-shadow: var(--shadow-sm);
+}
+
+/* menu settings link */
+.menu__links {
+  display: flex;
+  gap: var(--sp-3);
+}
+.menu__link {
+  font-weight: 700;
+  color: var(--c-ink-soft);
+  text-decoration: underline;
+}
+.menu__link:hover {
+  color: var(--c-ink);
 }
 
 /* ---- Toast ---- */

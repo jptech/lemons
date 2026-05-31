@@ -309,6 +309,7 @@ export interface StationView {
   role: StaffRole;
   state: "idle" | "serving" | "making";
   progress: number; // 0..1
+  servingIcon?: string; // archetype icon of the customer being served
 }
 
 export interface SimSnapshot {
@@ -321,6 +322,8 @@ export interface SimSnapshot {
   served: number;
   lost: number;
   pitcherPool: number;
+  /** Live raw-ingredient stock remaining (drains through the day). */
+  stock: { lemon: number; sugar: number; ice: number; cup: number };
   queue: QueueCustomerView[];
   stations: StationView[];
   isOver: boolean;
