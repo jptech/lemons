@@ -86,6 +86,12 @@ Verify gates for every step: `bun run typecheck`, `bun test`, `bun run build`,
 
 # PHASE 1 — depth at the start
 
+> **Status: ✅ SHIPPED** (schema 4→7). A = multi-facet reputation, B = supplier
+> market & ingredient quality, E₀ = menu foundation + 2nd product. All verified:
+> 67 tests pass, 6/6 balance seeds survive, single-product path byte-identical.
+> See `NOTES.md` for per-step details. Deferred to Phase 2: supply contracts
+> (gated by research), products with unique ingredient lines, snack add-ons.
+
 Goal: by the end of Phase 1, **day 1 has a real supply decision**, **reputation
 is something you diagnose and repair**, and **the menu has a second product** so
 the recipe loop (our most casual-friendly system) already has variety and the
