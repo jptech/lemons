@@ -1,4 +1,4 @@
-import { DEFAULT_RECIPE } from "../data/products";
+import { freshProducts } from "./menu";
 import { STARTER_LOCATION_ID } from "../data/locations";
 import { Rng } from "./rng";
 import { initialWeather } from "./weatherGen";
@@ -48,7 +48,8 @@ export function newGame(seed: number, mode: GameMode = "campaign"): GameState {
     regularsPool: 0,
     currentLocationId: STARTER_LOCATION_ID,
     unlockedLocationIds: [STARTER_LOCATION_ID],
-    recipe: { ...DEFAULT_RECIPE },
+    menu: ["classic"],
+    products: freshProducts(),
     inventory: [],
     supplier: { priceIndex: { lemon: 1, sugar: 1, ice: 1, cup: 1 } },
     ownedEquipmentIds: [],
@@ -56,9 +57,6 @@ export function newGame(seed: number, mode: GameMode = "campaign"): GameState {
     marketingSpend: 0,
     todayStockSpend: 0,
     todayEquipmentSpend: 0,
-    qualityScoreEMA: 0.5,
-    recipeFeedback: { lemon: 0, sugar: 0, ice: 0 },
-    priceFeedback: 0,
     weatherToday,
     activeEventId,
     completedGoalIds: [],

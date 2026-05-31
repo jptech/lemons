@@ -32,6 +32,8 @@ import {
 import { nextCondition, makeWeatherDay } from "./weatherGen";
 import { rollEvent } from "./eventRoll";
 import { gradeQualityBonus, stepSupplierPrices } from "./supplier";
+import { activeProducts, primaryProductId, productTaste } from "./menu";
+import { PRODUCT_BY_ID } from "../data/products";
 import { TUNING } from "./tuning";
 import type {
   ArchetypeDef,
@@ -40,12 +42,16 @@ import type {
   InventoryLot,
   ItemId,
   LocationDef,
+  ProductId,
+  ProductState,
   RepFacets,
+  Recipe,
   SimEvent,
   SimSnapshot,
   StationView,
   WeatherDay,
 } from "./types";
+import type { ProductTaste } from "./economy";
 
 // ---------------------------------------------------------------------------
 // Internal simulation entities
@@ -53,6 +59,7 @@ import type {
 interface SimCustomer {
   id: number;
   arch: ArchetypeDef;
+  product: ProductId; // which drink this customer wants
   patience: number;
   priceSensitivity: number;
   tasteShift: { lemon: number; sugar: number; ice: number };
@@ -74,6 +81,29 @@ interface Station {
    *  so a faster worker's speed isn't lost to integer-minute rounding. */
   carry: number;
   customer: SimCustomer | null;
+  /** Which product this station is currently brewing (when state === "making"). */
+  makeProduct: ProductId | null;
+}
+
+/** Per-product run-state: recipe/price/tolerance + pool + accumulators. */
+interface ProdRun {
+  id: ProductId;
+  recipe: Recipe;
+  price: number;
+  tolerance: number;
+  taste: ProductTaste;
+  batchLemons: number;
+  batchSugar: number;
+  batchIce: number;
+  pool: number; // cups ready to serve
+  served: number;
+  revenue: number;
+  qualSum: number;
+  fbL: number;
+  fbS: number;
+  fbI: number;
+  starSum: number;
+  starCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,14 +158,18 @@ export class DaySim {
   private readonly inv: InventoryLot[];
   private readonly stations: Station[];
   private readonly queue: SimCustomer[] = [];
-  private pool = 0; // cups of lemonade ready to serve
   private minute = 0;
   private nextCustomerId = 1;
   private over = false;
   private stockoutMinute: number | null = null;
   private unsoldCups = 0;
 
-  // counters
+  // per-product run state (recipe/price/pool/accumulators)
+  private readonly prods: Record<ProductId, ProdRun>;
+  private readonly menuIds: ProductId[];
+  private readonly primaryId: ProductId;
+
+  // global counters (business-wide — drive reputation, stars, P&L)
   private cupsSold = 0;
   private revenue = 0;
   private tips = 0;
@@ -149,20 +183,12 @@ export class DaySim {
   private servedSatSum = 0; // sum of satisfaction over SERVED customers only
   private delighted = 0;
   private iceAccum = 0;
-  // Recipe-feedback accumulators: summed (idealComp - playerComp) over served.
-  private fbL = 0;
-  private fbS = 0;
-  private fbI = 0;
 
   /** Additive quality bonus from premium taste solids brought into the day. */
   private readonly gradeBonus: number;
 
   private readonly batchPitchers: number;
   private readonly cupsPerBatch: number;
-  // Whole-unit ingredient cost of one batch (no fractional stock — see note).
-  private readonly batchLemons: number;
-  private readonly batchSugar: number;
-  private readonly batchIce: number;
 
   constructor(state: GameState) {
     this.state = state;
@@ -180,13 +206,30 @@ export class DaySim {
     );
 
     const weather = state.weatherToday;
-    this.tolerance = priceTolerance(
-      this.location,
-      this.effRep,
-      weather,
-      state.qualityScoreEMA,
-      this.effFacets.taste,
+    this.inv = state.inventory.map((l) => ({ ...l }));
+    this.gradeBonus = gradeQualityBonus(state.inventory);
+    this.batchPitchers = this.derived.batchSizeMult;
+    this.cupsPerBatch = Math.max(1, Math.round(TUNING.CUPS_PER_PITCHER * this.derived.batchSizeMult));
+
+    // Build per-product run state for every product on the menu.
+    this.primaryId = primaryProductId(state);
+    this.menuIds = (state.menu.length ? state.menu : (["classic"] as ProductId[])).filter(
+      (id) => PRODUCT_BY_ID[id],
     );
+    if (!this.menuIds.length) this.menuIds = ["classic"];
+    this.prods = {} as Record<ProductId, ProdRun>;
+    for (const ap of activeProducts(state)) {
+      this.prods[ap.id] = this.buildProdRun(ap.id, ap.state, weather);
+    }
+    if (!this.prods[this.primaryId]) {
+      // Safety: ensure the primary always has a run entry.
+      const ps = state.products[this.primaryId];
+      if (ps) this.prods[this.primaryId] = this.buildProdRun(this.primaryId, ps, weather);
+    }
+
+    // Top-of-funnel demand is driven by the PRIMARY product's price/tolerance.
+    this.tolerance = this.prods[this.primaryId]!.tolerance;
+    const primaryPrice = this.prods[this.primaryId]!.price;
 
     const event = state.activeEventId ? EVENT_BY_ID[state.activeEventId] : undefined;
     const baseExpected = expectedCustomers({
@@ -198,7 +241,7 @@ export class DaySim {
       valueEff: this.effFacets.value,
       marketingSpend: state.marketingSpend,
       marketingFloor: this.derived.marketingFloor,
-      price: state.recipe.pricePerCup,
+      price: primaryPrice,
       tolerance: this.tolerance,
       regularsPool: state.regularsPool,
       eventTrafficMult: event?.effect.trafficMult ?? 1,
@@ -214,17 +257,35 @@ export class DaySim {
     for (let m = 0; m < this.openMinutes; m++) s += arrivalCurveWeight(m, this.openMinutes);
     this.sumWeights = s;
 
-    this.inv = state.inventory.map((l) => ({ ...l }));
-    this.gradeBonus = gradeQualityBonus(state.inventory);
-    this.batchPitchers = this.derived.batchSizeMult;
-    this.cupsPerBatch = Math.max(1, Math.round(TUNING.CUPS_PER_PITCHER * this.derived.batchSizeMult));
-    // Round per-batch ingredient use to whole units so inventory stays integer
-    // even with fractional batch-size multipliers (e.g. ×1.5, ×2.1).
-    const r = state.recipe;
-    this.batchLemons = Math.round(r.lemons * this.batchPitchers);
-    this.batchSugar = Math.round(r.sugar * this.batchPitchers);
-    this.batchIce = Math.round(r.ice * this.batchPitchers);
     this.stations = this.buildStations();
+  }
+
+  /** Build the per-product run state (price/tolerance/batch amounts) for a day. */
+  private buildProdRun(id: ProductId, ps: ProductState, weather: WeatherDay): ProdRun {
+    const def = PRODUCT_BY_ID[id];
+    const tol =
+      priceTolerance(this.location, this.effRep, weather, ps.qualityScoreEMA, this.effFacets.taste) *
+      (def?.priceTolMult ?? 1);
+    return {
+      id,
+      recipe: ps.recipe,
+      price: ps.recipe.pricePerCup,
+      tolerance: tol,
+      taste: productTaste(id),
+      // Round per-batch ingredient use to whole units so inventory stays integer.
+      batchLemons: Math.round(ps.recipe.lemons * this.batchPitchers),
+      batchSugar: Math.round(ps.recipe.sugar * this.batchPitchers),
+      batchIce: Math.round(ps.recipe.ice * this.batchPitchers),
+      pool: 0,
+      served: 0,
+      revenue: 0,
+      qualSum: 0,
+      fbL: 0,
+      fbS: 0,
+      fbI: 0,
+      starSum: 0,
+      starCount: 0,
+    };
   }
 
   private dayOfWeek() {
@@ -244,6 +305,7 @@ export class DaySim {
         taskTime: 1,
         carry: 0,
         customer: null,
+        makeProduct: null,
       },
     ];
     this.state.staff.forEach((st, i) => {
@@ -258,6 +320,7 @@ export class DaySim {
         taskTime: 1,
         carry: 0,
         customer: null,
+        makeProduct: null,
       });
     });
     return stations;
@@ -301,12 +364,14 @@ export class DaySim {
       if (st.state === "serving") {
         this.finalizeSale(st, events);
       } else {
-        this.pool += this.cupsPerBatch;
+        const pr = st.makeProduct ? this.prods[st.makeProduct] : undefined;
+        if (pr) pr.pool += this.cupsPerBatch;
         events.push({ type: "batch", cups: this.cupsPerBatch });
       }
       st.carry = Math.min(st.taskTime, -st.ticksLeft); // leftover minute fraction
       st.state = "idle";
       st.customer = null;
+      st.makeProduct = null;
     }
 
     // 3. Assign idle stations
@@ -340,9 +405,11 @@ export class DaySim {
           this.rng.uniform(0.7, 1.3),
       ),
     );
+    const product = this.pickProduct(arch);
     const c: SimCustomer = {
       id: this.nextCustomerId++,
       arch,
+      product,
       patience,
       priceSensitivity: arch.priceSensitivity,
       tasteShift: arch.tasteShift,
@@ -374,66 +441,110 @@ export class DaySim {
     return this.rng.weightedPick(ARCHETYPES, weights);
   }
 
+  /** Which product this customer wants, weighted by per-product archetype appeal.
+   *  Single-product menus take no RNG draw (keeps the classic path identical). */
+  private pickProduct(arch: ArchetypeDef): ProductId {
+    if (this.menuIds.length <= 1) return this.menuIds[0] ?? this.primaryId;
+    const weights = this.menuIds.map((id) => Math.max(0, PRODUCT_BY_ID[id]?.appeal?.[arch.id] ?? 1));
+    return this.rng.weightedPick(this.menuIds, weights);
+  }
+
   private assignStations(events: SimEvent[]) {
     const buffer = Math.max(2, this.stations.length);
     for (const st of this.stations) {
       if (st.state !== "idle") continue;
-      const canServe = this.queue.length > 0 && this.pool >= 1 && qtyOf(this.inv, "cup") >= 1;
-      const canMake = this.canMakeBatch();
-      const poolLow = this.pool < buffer;
+      const front = this.queue[0];
+      const cupsAvail = qtyOf(this.inv, "cup") >= 1;
+      const makeProd = this.productToMake();
+      const canServeFront = !!front && cupsAvail && (this.prods[front.product]?.pool ?? 0) >= 1;
+      const makePoolLow = makeProd ? makeProd.pool < buffer : false;
+      const makePoolEmpty = makeProd ? makeProd.pool < 1 : false;
 
-      // Prefer keeping the pool stocked when it runs low; otherwise serve.
-      if (canMake && poolLow && (this.queue.length > 0 || this.pool < 1)) {
-        this.startMake(st);
-      } else if (canServe) {
-        this.startServe(st);
-      } else if (canMake && this.queue.length > 0) {
-        this.startMake(st);
-      } else if (this.queue.length > 0 && this.pool < 1 && !canMake) {
-        // Out of raw ingredients (and no pool) — a real stockout.
+      // Prefer keeping the most-needed product's pool stocked; otherwise serve
+      // the front of the line (FIFO).
+      if (makeProd && makePoolLow && (this.queue.length > 0 || makePoolEmpty)) {
+        this.startMake(st, makeProd);
+      } else if (canServeFront) {
+        this.startServe(st, front!);
+      } else if (makeProd && this.queue.length > 0) {
+        this.startMake(st, makeProd);
+      } else if (this.queue.length > 0) {
+        // A waiting line we can neither serve nor brew for → a stockout.
         if (this.stockoutMinute === null) {
           this.stockoutMinute = this.minute;
-          const missing = this.firstMissingForBatch();
+          const missing: ItemId | null = !cupsAvail ? "cup" : makeProd ? null : this.firstMissingAny();
           if (missing) events.push({ type: "stockout", item: missing });
-        }
-      } else if (canServe === false && this.pool >= 1 && this.queue.length > 0 && qtyOf(this.inv, "cup") < 1) {
-        // Lemonade ready but out of cups.
-        if (this.stockoutMinute === null) {
-          this.stockoutMinute = this.minute;
-          events.push({ type: "stockout", item: "cup" });
         }
       }
     }
   }
 
-  private canMakeBatch(): boolean {
+  /** Count of queued customers waiting for a given product. */
+  private queuedDemand(id: ProductId): number {
+    let n = 0;
+    for (const c of this.queue) if (c.product === id) n++;
+    return n;
+  }
+
+  /** Which product to brew next: the front customer's (if their pool is empty),
+   *  else the makeable product with the greatest shortfall. */
+  private productToMake(): ProdRun | null {
+    const makeable = this.menuIds
+      .map((id) => this.prods[id])
+      .filter((pr): pr is ProdRun => !!pr && this.canMakeBatch(pr));
+    if (!makeable.length) return null;
+    const front = this.queue[0];
+    if (front) {
+      const fpr = this.prods[front.product];
+      if (fpr && this.canMakeBatch(fpr) && fpr.pool < 1) return fpr;
+    }
+    let best = makeable[0]!;
+    let bestScore = -Infinity;
+    for (const pr of makeable) {
+      const score = this.queuedDemand(pr.id) - pr.pool;
+      if (score > bestScore + 1e-9) {
+        bestScore = score;
+        best = pr;
+      }
+    }
+    return best;
+  }
+
+  private canMakeBatch(pr: ProdRun): boolean {
     return (
-      qtyOf(this.inv, "lemon") >= this.batchLemons &&
-      qtyOf(this.inv, "sugar") >= this.batchSugar &&
-      qtyOf(this.inv, "ice") >= this.batchIce
+      qtyOf(this.inv, "lemon") >= pr.batchLemons &&
+      qtyOf(this.inv, "sugar") >= pr.batchSugar &&
+      qtyOf(this.inv, "ice") >= pr.batchIce
     );
   }
 
-  private firstMissingForBatch(): ItemId | null {
-    if (qtyOf(this.inv, "lemon") < this.batchLemons) return "lemon";
-    if (qtyOf(this.inv, "sugar") < this.batchSugar) return "sugar";
-    if (qtyOf(this.inv, "ice") < this.batchIce) return "ice";
+  private firstMissingForBatch(pr: ProdRun): ItemId | null {
+    if (qtyOf(this.inv, "lemon") < pr.batchLemons) return "lemon";
+    if (qtyOf(this.inv, "sugar") < pr.batchSugar) return "sugar";
+    if (qtyOf(this.inv, "ice") < pr.batchIce) return "ice";
     return null;
   }
 
-  private startMake(st: Station) {
-    consume(this.inv, "lemon", this.batchLemons);
-    consume(this.inv, "sugar", this.batchSugar);
-    consume(this.inv, "ice", this.batchIce);
+  private firstMissingAny(): ItemId | null {
+    const pr = this.prods[this.queue[0]?.product ?? this.primaryId] ?? this.prods[this.primaryId];
+    return pr ? this.firstMissingForBatch(pr) : null;
+  }
+
+  private startMake(st: Station, pr: ProdRun) {
+    consume(this.inv, "lemon", pr.batchLemons);
+    consume(this.inv, "sugar", pr.batchSugar);
+    consume(this.inv, "ice", pr.batchIce);
     st.state = "making";
+    st.makeProduct = pr.id;
     st.taskTime = TUNING.BATCH_TIME / st.batchMult;
     st.ticksLeft = Math.max(0.001, st.taskTime - st.carry);
     st.carry = 0;
   }
 
-  private startServe(st: Station) {
-    const c = this.queue.shift()!;
-    this.pool -= 1;
+  private startServe(st: Station, c: SimCustomer) {
+    this.queue.shift(); // c is the front of the line
+    const pr = this.prods[c.product];
+    if (pr) pr.pool -= 1;
     consume(this.inv, "cup", 1);
     st.state = "serving";
     st.customer = c;
@@ -444,15 +555,17 @@ export class DaySim {
 
   private finalizeSale(st: Station, events: SimEvent[]) {
     const c = st.customer!;
-    const price = this.state.recipe.pricePerCup;
+    const pr = this.prods[c.product] ?? this.prods[this.primaryId]!;
+    const price = pr.price;
     const weather = this.state.weatherToday;
 
-    const baseQ = recipeQuality(this.state.recipe, weather, c.tasteShift);
+    const baseQ = recipeQuality(pr.recipe, weather, c.tasteShift, pr.taste);
     const quality = clamp(baseQ + this.gradeBonus + this.rng.gaussian(0, TUNING.TASTE_NOISE), 0, 1);
-    const fairness = priceFairness(price, this.tolerance, c.priceSensitivity);
+    const fairness = priceFairness(price, pr.tolerance, c.priceSensitivity);
     const wait = waitScore(c.waited, c.patience);
     const satisfaction = combineSatisfaction(quality, fairness, wait);
 
+    // Global (business-wide) tallies.
     this.cupsSold++;
     this.served++;
     this.revenue += price;
@@ -461,12 +574,18 @@ export class DaySim {
     this.waitSum += wait;
     this.servedSatSum += satisfaction;
     if (satisfaction >= TUNING.TIP_THRESHOLD) this.delighted++;
-    this.accumulateFeedback(c, weather);
+    // Per-product tallies (drive each product's quality EMA + feedback).
+    pr.served++;
+    pr.revenue += price;
+    pr.qualSum += quality;
+    this.accumulateFeedback(pr, c, weather);
 
     const stars = starsFromSatisfaction(satisfaction);
     // Reviewers: a sample plus the extremes (delight/disappointment).
     if (this.rng.chance(TUNING.REVIEW_RATE) || stars === 5 || stars === 1) {
       this.starHist[stars - 1] = (this.starHist[stars - 1] ?? 0) + 1;
+      pr.starSum += stars;
+      pr.starCount++;
     }
 
     const tip = tipAmount(satisfaction, price, c.arch, this.rng.next());
@@ -477,27 +596,34 @@ export class DaySim {
     events.push({ type: "sale", archetype: c.arch.id, price, stars, satisfaction });
   }
 
-  /** Accumulate how far this customer's ideal differs from the recipe (per part). */
-  private accumulateFeedback(c: SimCustomer, weather: WeatherDay) {
-    const ideal = idealRecipe(weather);
+  /** Accumulate how far this customer's ideal differs from the product recipe. */
+  private accumulateFeedback(pr: ProdRun, c: SimCustomer, weather: WeatherDay) {
+    const ideal = idealRecipe(weather, pr.taste);
     const il = Math.max(0, ideal.vec[0] + c.tasteShift.lemon);
     const is = Math.max(0, ideal.vec[1] + c.tasteShift.sugar);
     const ii = Math.max(0, ideal.vec[2] + c.tasteShift.ice);
     const isum = il + is + ii || 1;
-    const r = this.state.recipe;
+    const r = pr.recipe;
     const psum = r.lemons + r.sugar + r.ice || 1;
-    this.fbL += il / isum - r.lemons / psum;
-    this.fbS += is / isum - r.sugar / psum;
-    this.fbI += ii / isum - r.ice / psum;
+    pr.fbL += il / isum - r.lemons / psum;
+    pr.fbS += is / isum - r.sugar / psum;
+    pr.fbI += ii / isum - r.ice / psum;
   }
 
   private close(events: SimEvent[]) {
     // Anyone still in line when we close didn't get served.
     this.balked += this.queue.length;
     this.queue.length = 0;
-    this.unsoldCups = Math.floor(this.pool); // brewed but never sold
+    this.unsoldCups = this.totalPool(); // brewed but never sold (across products)
     this.over = true;
     events.push({ type: "close" });
+  }
+
+  /** Total ready-to-serve cups across all products (floored). */
+  private totalPool(): number {
+    let n = 0;
+    for (const id of this.menuIds) n += Math.floor(this.prods[id]?.pool ?? 0);
+    return n;
   }
 
   // -------------------------------------------------------------------------
@@ -513,7 +639,7 @@ export class DaySim {
       tips: this.tips,
       served: this.served,
       lost: this.balked + this.reneged,
-      pitcherPool: this.pool,
+      pitcherPool: this.totalPool(),
       stock: {
         lemon: Math.floor(qtyOf(this.inv, "lemon")),
         sugar: Math.floor(qtyOf(this.inv, "sugar")),
@@ -583,9 +709,9 @@ export class DaySim {
       stockoutMinute: this.stockoutMinute,
       unsoldCups: this.unsoldCups,
       tolerance: this.tolerance,
-      fbL: this.fbL,
-      fbS: this.fbS,
-      fbI: this.fbI,
+      prods: this.prods,
+      menuIds: this.menuIds,
+      primaryId: this.primaryId,
     };
   }
 }
@@ -673,25 +799,26 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
   const newGlobal = blendRep(newGF);
   const newLocal = blendRep(newLF);
 
-  // ---- Quality EMA + recipe feedback (only when we actually served) ----
-  let qualityEMA = prev.qualityScoreEMA;
-  const prevFb = prev.recipeFeedback ?? { lemon: 0, sugar: 0, ice: 0 };
-  let recipeFeedback = prevFb;
-  let priceFeedback = prev.priceFeedback ?? 0;
-  if (d.served > 0) {
-    const avgQ = d.qualSum / d.served;
-    qualityEMA = qualityEMA + TUNING.QUALITY_EMA_EASE * (avgQ - qualityEMA);
+  // ---- Per-product quality EMA + recipe/price feedback (its own discovery) ----
+  const nextProducts: Record<ProductId, ProductState> = { ...prev.products };
+  for (const id of d.menuIds) {
+    const pr = d.prods[id];
+    const ps = prev.products[id];
+    if (!pr || !ps || pr.served <= 0) continue;
+    const avgQ = pr.qualSum / pr.served;
+    const qualityScoreEMA = ps.qualityScoreEMA + TUNING.QUALITY_EMA_EASE * (avgQ - ps.qualityScoreEMA);
     const e = TUNING.FEEDBACK_EASE;
-    recipeFeedback = {
-      lemon: prevFb.lemon + e * (d.fbL / d.served - prevFb.lemon),
-      sugar: prevFb.sugar + e * (d.fbS / d.served - prevFb.sugar),
-      ice: prevFb.ice + e * (d.fbI / d.served - prevFb.ice),
+    const recipeFeedback = {
+      lemon: ps.recipeFeedback.lemon + e * (pr.fbL / pr.served - ps.recipeFeedback.lemon),
+      sugar: ps.recipeFeedback.sugar + e * (pr.fbS / pr.served - ps.recipeFeedback.sugar),
+      ice: ps.recipeFeedback.ice + e * (pr.fbI / pr.served - ps.recipeFeedback.ice),
     };
-    // Pricing signal: how the day's price compared to what the crowd would bear.
-    // Positive = room to charge more; negative = guests found you pricey.
-    const ratio = prev.recipe.pricePerCup / (d.tolerance || 1);
+    // Pricing signal: how this product's price compared to what its crowd would
+    // bear. Positive = room to charge more; negative = guests found it pricey.
+    const ratio = pr.price / (pr.tolerance || 1);
     const daySignal = clamp((0.9 - ratio) * 1.8, -1, 1);
-    priceFeedback = priceFeedback + TUNING.PRICE_FEEDBACK_EASE * (daySignal - priceFeedback);
+    const priceFeedback = ps.priceFeedback + TUNING.PRICE_FEEDBACK_EASE * (daySignal - ps.priceFeedback);
+    nextProducts[id] = { recipe: ps.recipe, qualityScoreEMA, recipeFeedback, priceFeedback };
   }
 
   // ---- Regulars pool (loyalty program speeds growth) ----
@@ -758,8 +885,9 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
     locationId: prev.currentLocationId,
     weather: prev.weatherToday,
     ...(prev.activeEventId ? { eventId: prev.activeEventId } : {}),
-    price: prev.recipe.pricePerCup,
-    recipe: { ...prev.recipe },
+    price: prev.products[d.primaryId]!.recipe.pricePerCup,
+    recipe: { ...prev.products[d.primaryId]!.recipe },
+    perProduct: buildPerProduct(d),
     potentialCustomers: d.served + lostToday,
     served: d.served,
     balked: d.balked,
@@ -813,9 +941,7 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
     locationRepFacets: { ...prev.locationRepFacets, [prev.currentLocationId]: newLF },
     regularsPool: regulars,
     inventory: nextInv,
-    qualityScoreEMA: qualityEMA,
-    recipeFeedback,
-    priceFeedback,
+    products: nextProducts,
     weatherToday,
     activeEventId: nextEventId,
     supplier,
@@ -843,6 +969,21 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
   result.newAchievements = unlockedAchievementIds.filter((id) => !prev.unlockedAchievementIds.includes(id));
 
   return { state: next, result };
+}
+
+/** Build the per-product sales breakdown for the recap from the day's run state. */
+function buildPerProduct(d: ReturnType<DaySim["_data"]>): DayResult["perProduct"] {
+  const out: NonNullable<DayResult["perProduct"]> = {};
+  for (const id of d.menuIds) {
+    const pr = d.prods[id];
+    if (!pr || pr.served <= 0) continue;
+    out[id] = {
+      cupsSold: pr.served,
+      revenue: pr.revenue,
+      avgStars: pr.starCount > 0 ? pr.starSum / pr.starCount : 0,
+    };
+  }
+  return out;
 }
 
 // re-export for callers that only need qtyOf semantics

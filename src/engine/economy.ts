@@ -44,15 +44,37 @@ function tempBand(weather: WeatherDay): "hot" | "mild" | "cold" {
   return "mild";
 }
 
-export function idealRecipe(weather: WeatherDay): IdealRecipe {
+/** Optional per-product taste profile that shifts the weather ideal. */
+export interface ProductTaste {
+  idealShift?: { lemon: number; sugar: number; ice: number };
+  strengthBias?: number;
+}
+
+export function idealRecipe(weather: WeatherDay, product?: ProductTaste): IdealRecipe {
+  let vec: [number, number, number];
+  let strength: number;
   switch (tempBand(weather)) {
     case "hot":
-      return { vec: [0.34, 0.3, 0.36], strength: TUNING.IDEAL_STRENGTH_HOT };
+      vec = [0.34, 0.3, 0.36];
+      strength = TUNING.IDEAL_STRENGTH_HOT;
+      break;
     case "cold":
-      return { vec: [0.42, 0.42, 0.16], strength: TUNING.IDEAL_STRENGTH_COLD };
+      vec = [0.42, 0.42, 0.16];
+      strength = TUNING.IDEAL_STRENGTH_COLD;
+      break;
     default:
-      return { vec: [0.38, 0.34, 0.28], strength: TUNING.IDEAL_STRENGTH_MILD };
+      vec = [0.38, 0.34, 0.28];
+      strength = TUNING.IDEAL_STRENGTH_MILD;
   }
+  if (product?.idealShift) {
+    vec = normalize3(
+      Math.max(0, vec[0] + product.idealShift.lemon),
+      Math.max(0, vec[1] + product.idealShift.sugar),
+      Math.max(0, vec[2] + product.idealShift.ice),
+    );
+  }
+  if (product?.strengthBias) strength += product.strengthBias;
+  return { vec, strength };
 }
 
 function normalize3(a: number, b: number, c: number): [number, number, number] {
@@ -68,8 +90,9 @@ export function recipeQuality(
   recipe: Recipe,
   weather: WeatherDay,
   tasteShift?: { lemon: number; sugar: number; ice: number },
+  product?: ProductTaste,
 ): number {
-  const ideal = idealRecipe(weather);
+  const ideal = idealRecipe(weather, product);
   let [il, is, ii] = ideal.vec;
   if (tasteShift) {
     [il, is, ii] = normalize3(

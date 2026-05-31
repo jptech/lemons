@@ -12,6 +12,7 @@ import {
   newGame,
   setPrice,
   setRecipe,
+  toggleMenuProduct,
   buyStock,
   discardStock,
   buyEquipment,
@@ -29,6 +30,7 @@ import {
   type GameState,
   type ItemGrade,
   type ItemId,
+  type ProductId,
   type Recipe,
   type StaffRole,
 } from "../engine";
@@ -123,8 +125,10 @@ export const actions = {
   },
 
   // --- planning reducers ---
-  setPrice: (p: number) => patchGame((g) => setPrice(g, p)),
-  setRecipe: (patch: Partial<Recipe>) => patchGame((g) => setRecipe(g, patch)),
+  setPrice: (p: number, product?: ProductId) => patchGame((g) => setPrice(g, p, product)),
+  setRecipe: (patch: Partial<Recipe>, product?: ProductId) =>
+    patchGame((g) => setRecipe(g, patch, product)),
+  toggleMenuProduct: (product: ProductId) => patchGame((g) => toggleMenuProduct(g, product)),
   buyStock: (item: ItemId, qty: number, grade: ItemGrade = "standard") =>
     patchGame((g) => buyStock(g, item, qty, grade)),
   buyMax: (item: ItemId, grade: ItemGrade = "standard") =>

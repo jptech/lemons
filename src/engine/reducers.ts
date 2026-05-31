@@ -6,11 +6,15 @@ import { creditLimit, derive, usedStorage } from "./derive";
 import { TUNING } from "./tuning";
 import { clamp } from "./economy";
 import { bulkFactor, unitPrice } from "./supplier";
+import { freshProductState, primaryProductId, productStateOf } from "./menu";
+import { PRODUCT_BY_ID } from "../data/products";
 import type {
   GameState,
   InventoryLot,
   ItemGrade,
   ItemId,
+  ProductId,
+  ProductState,
   Recipe,
   StaffRole,
 } from "./types";
@@ -33,21 +37,47 @@ export function itemBuyPrice(
   return unit;
 }
 
-export function setPrice(state: GameState, price: number): GameState {
+export function setPrice(state: GameState, price: number, product: ProductId = primaryProductId(state)): GameState {
+  const ps = productStateOf(state, product);
   const p = Math.max(0, Math.round(price * 100) / 100);
-  if (p === state.recipe.pricePerCup) return state;
-  return { ...state, recipe: { ...state.recipe, pricePerCup: p } };
+  if (p === ps.recipe.pricePerCup) return state;
+  return patchProduct(state, product, { recipe: { ...ps.recipe, pricePerCup: p } });
 }
 
-export function setRecipe(state: GameState, patch: Partial<Recipe>): GameState {
-  const recipe = { ...state.recipe, ...patch };
+export function setRecipe(state: GameState, patch: Partial<Recipe>, product: ProductId = primaryProductId(state)): GameState {
+  const ps = productStateOf(state, product);
+  const recipe = { ...ps.recipe, ...patch };
   // Keep parts sane (non-negative; water at least 1 to avoid divide-by-zero).
   recipe.lemons = clamp(Math.round(recipe.lemons), 0, 20);
   recipe.sugar = clamp(Math.round(recipe.sugar), 0, 20);
   recipe.ice = clamp(Math.round(recipe.ice), 0, 20);
   recipe.water = clamp(Math.round(recipe.water), 1, 30);
   recipe.pricePerCup = Math.max(0, Math.round(recipe.pricePerCup * 100) / 100);
-  return { ...state, recipe };
+  return patchProduct(state, product, { recipe });
+}
+
+/** Add/remove a product from the active menu (primary product can't be removed;
+ *  Phase 1 caps the menu at 2). */
+export function toggleMenuProduct(state: GameState, product: ProductId): GameState {
+  if (!PRODUCT_BY_ID[product]) return state;
+  const on = state.menu.includes(product);
+  if (on) {
+    if (state.menu[0] === product) return state; // can't drop the primary
+    return { ...state, menu: state.menu.filter((p) => p !== product) };
+  }
+  if (state.menu.length >= MENU_CAP) return state;
+  // Ensure the product has a state entry.
+  const products = state.products[product]
+    ? state.products
+    : { ...state.products, [product]: freshProductState(product) };
+  return { ...state, menu: [...state.menu, product], products };
+}
+
+const MENU_CAP = 2;
+
+function patchProduct(state: GameState, product: ProductId, patch: Partial<ProductState>): GameState {
+  const cur = productStateOf(state, product);
+  return { ...state, products: { ...state.products, [product]: { ...cur, ...patch } } };
 }
 
 /** Buy `qty` of an item/grade, respecting cash and storage capacity. Larger

@@ -36,7 +36,16 @@ export interface Recipe {
   pricePerCup: number;
 }
 
-export type ProductId = "classic";
+export type ProductId = "classic" | "pink";
+
+/** Per-product mutable state — each product has its own recipe, price, learned
+ *  quality EMA, and saved recipe/price feedback (its own discovery loop). */
+export interface ProductState {
+  recipe: Recipe;
+  qualityScoreEMA: number; // 0..1 EMA of this product's recipe quality
+  recipeFeedback: { lemon: number; sugar: number; ice: number };
+  priceFeedback: number; // ~[-1,1]; + = room to charge more
+}
 
 // ---------------------------------------------------------------------------
 // Weather
@@ -249,8 +258,10 @@ export interface DayResult {
   locationId: string;
   weather: WeatherDay;
   eventId?: string;
-  price: number;
-  recipe: Recipe;
+  price: number; // primary product's price (back-compat)
+  recipe: Recipe; // primary product's recipe (back-compat)
+  /** Per-product sales breakdown (for the menu-mix recap). */
+  perProduct?: Partial<Record<ProductId, { cupsSold: number; revenue: number; avgStars: number }>>;
   potentialCustomers: number;
   served: number;
   balked: number;
@@ -300,7 +311,8 @@ export interface GameState {
   currentLocationId: string;
   unlockedLocationIds: string[];
 
-  recipe: Recipe;
+  menu: ProductId[]; // active products (menu[0] = primary); 1–2 in Phase 1
+  products: Record<ProductId, ProductState>; // per-product recipe/EMA/feedback
   inventory: InventoryLot[];
   supplier: SupplierState; // per-item market price index
   ownedEquipmentIds: string[];
@@ -309,13 +321,6 @@ export interface GameState {
   marketingSpend: number; // planned spend for today
   todayStockSpend: number; // cash spent buying stock today (for P&L)
   todayEquipmentSpend: number; // cash spent on equipment today (for P&L)
-  qualityScoreEMA: number; // 0..1 EMA of recipe quality
-  /** Smoothed signal of what customers wished for, per ingredient. Positive =
-   *  customers want MORE of it than your recipe has (normalized, ~[-0.3,0.3]). */
-  recipeFeedback: { lemon: number; sugar: number; ice: number };
-  /** Smoothed pricing signal in ~[-1,1]. Positive = you could charge MORE;
-   *  negative = customers find you pricey. Drives price discovery. */
-  priceFeedback: number;
 
   weatherToday: WeatherDay;
   activeEventId: string | null;

@@ -46,9 +46,13 @@ Modes: **Campaign** (goal ladder, can continue endless) and **Sandbox**.
 - **Pricing** — logistic acceptance vs a hidden `priceTolerance` (location × rep ×
   weather × proven-quality). The exact tolerance is **not shown**; players do
   **price discovery** via review-driven pricing feedback.
-- **Recipe** — parts of lemon/sugar/water/ice + price. Quality = distance from a
-  hidden, weather-dependent ideal. Persistent **recipe feedback** (EMA) guides
-  ingredient tweaks ("more lemon, less ice") with an Apply button.
+- **Menu & recipes** — up to **2 active products** (`menu`), each with its own
+  `recipe`, price, quality EMA, and recipe/price feedback (`products` map). A
+  recipe is parts of lemon/sugar/water/ice + price; quality = distance from a
+  hidden, weather-dependent ideal (shifted per product). Persistent **recipe
+  feedback** (EMA) guides tweaks with an Apply button. The 2nd product (Pink
+  Lemonade) shares raw ingredients but tunes to a sweeter ideal and appeals to
+  kids/tourists — a strategic menu choice that splits crew time, not free upside.
 - **Reputation** — a **4-facet vector** (Taste / Service / Value / Buzz), global +
   location-sticky, each eased toward its own daily signal with its own decay
   (Buzz fades fast, Taste compounds). Blended (`REP_BLEND`) into the cached
@@ -240,3 +244,20 @@ Tagged by effort. Pulled from the theme review; trim/expand as we go.
   distinct lots. UI: per-row Standard/✨Premium toggle (lemon/sugar), price-trend
   chip (▲/▼ % vs normal), bulk hint, and event-spike red. Migration 5→6 seeds a
   neutral market. Tests in `test/supplier.test.ts`.
+
+- **Step E₀ — menu foundation (per-product refactor + 2nd product).** Replaced
+  the singular `recipe`/`qualityScoreEMA`/`recipeFeedback`/`priceFeedback` with a
+  `products: Record<ProductId, ProductState>` map + `menu: ProductId[]` (new
+  `engine/menu.ts` accessors). The `DaySim` is now multi-product: each customer
+  picks a drink (weighted by per-product archetype appeal; **no RNG draw when the
+  menu has one product**, so the classic path stays byte-identical — proven by
+  unchanged balance + 61 prior tests), per-product pitcher pools, per-product
+  make/serve with FIFO, per-product quality/feedback at settlement, and a
+  `DayResult.perProduct` breakdown. Pink Lemonade (`data/products.ts`) shares raw
+  ingredients but has its own ideal shift / strength bias / price-tolerance
+  premium / archetype appeal. UI: per-product recipe editors + a menu manager
+  (add/remove, cap 2) in the planning panel; a per-product menu-mix in the recap.
+  Economy `idealRecipe`/`recipeQuality` gained an optional product taste profile
+  (defaults preserve classic). Migration 6→7 wraps the old singular fields into
+  `products.classic` and seeds the menu. Tests in `test/menu.test.ts`.
+  (More products + snack add-ons come in Phase 2 / E₊.)

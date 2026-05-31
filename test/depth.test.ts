@@ -100,7 +100,7 @@ describe("recipe feedback", () => {
       s = topUp(s, "cup", 130);
       s = simulateDay(s).state;
     }
-    expect(s.recipeFeedback.ice).toBeLessThan(0);
+    expect(s.products.classic.recipeFeedback.ice).toBeLessThan(0);
   });
 });
 

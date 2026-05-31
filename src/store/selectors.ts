@@ -12,11 +12,17 @@ import {
   TUNING,
   effectiveFacets,
   uniformFacets,
+  primaryProduct,
+  primaryProductId,
+  productStateOf,
+  productTaste,
   type GameState,
   type ItemId,
+  type ProductId,
   type RepFacetId,
 } from "../engine";
 import { forecastSigma } from "../engine/economy";
+import { PRODUCT_BY_ID } from "../data/products";
 import { LOCATION_BY_ID } from "../data/locations";
 import { EVENT_BY_ID } from "../data/events";
 
@@ -57,7 +63,8 @@ export function projectedCustomers(g: GameState): number {
   const effRep = effectiveReputation(g);
   const facets = effectiveFacets(g);
   const weather = forecastWeather(g);
-  const tol = priceTolerance(loc, effRep, weather, g.qualityScoreEMA, facets.taste);
+  const primary = primaryProduct(g);
+  const tol = priceTolerance(loc, effRep, weather, primary.qualityScoreEMA, facets.taste);
   const event = g.activeEventId ? EVENT_BY_ID[g.activeEventId] : undefined;
   return Math.round(
     expectedCustomers({
@@ -69,7 +76,7 @@ export function projectedCustomers(g: GameState): number {
       valueEff: facets.value,
       marketingSpend: g.marketingSpend,
       marketingFloor: derive(g).marketingFloor,
-      price: g.recipe.pricePerCup,
+      price: primary.recipe.pricePerCup,
       tolerance: tol,
       regularsPool: g.regularsPool,
       eventTrafficMult: event?.effect.trafficMult ?? 1,
@@ -78,17 +85,22 @@ export function projectedCustomers(g: GameState): number {
 }
 
 /** Recipe quality vs the forecast ideal (0..1) — the player-facing hint. */
-export function recipeQualityHint(g: GameState): number {
-  return recipeQuality(g.recipe, forecastWeather(g));
+export function recipeQualityHint(g: GameState, productId: ProductId = primaryProductId(g)): number {
+  const ps = productStateOf(g, productId);
+  return recipeQuality(ps.recipe, forecastWeather(g), undefined, productTaste(productId));
 }
 
-export function priceToleranceHint(g: GameState): number {
-  return priceTolerance(
-    currentLocation(g),
-    effectiveReputation(g),
-    forecastWeather(g),
-    g.qualityScoreEMA,
-    effectiveFacets(g).taste,
+export function priceToleranceHint(g: GameState, productId: ProductId = primaryProductId(g)): number {
+  const def = PRODUCT_BY_ID[productId];
+  const ps = productStateOf(g, productId);
+  return (
+    priceTolerance(
+      currentLocation(g),
+      effectiveReputation(g),
+      forecastWeather(g),
+      ps.qualityScoreEMA,
+      effectiveFacets(g).taste,
+    ) * (def?.priceTolMult ?? 1)
   );
 }
 
@@ -162,7 +174,7 @@ export function projectedIceAvailable(g: GameState): number {
  * ice maker isn't falsely bottlenecked on the ice it starts the day with.
  */
 export function pitchersFromStock(g: GameState): number {
-  const r = g.recipe;
+  const r = primaryProduct(g).recipe;
   const lim = (have: number, per: number) => (per > 0 ? have / per : Infinity);
   return Math.floor(
     Math.min(
@@ -274,7 +286,7 @@ export function salesForecast(g: GameState): SalesForecast {
 
   const low = Math.round(Math.min(crowdLow, capacity, stockCups));
   const high = Math.round(Math.min(crowdHigh, capacity, stockCups));
-  const price = g.recipe.pricePerCup;
+  const price = primaryProduct(g).recipe.pricePerCup;
   return {
     crowd,
     crowdLow: Math.round(crowdLow),
@@ -298,8 +310,8 @@ export interface PricingHint {
 }
 
 /** Qualitative pricing guidance from saved review feedback (price discovery). */
-export function pricingHint(g: GameState): PricingHint {
-  const pf = g.priceFeedback ?? 0;
+export function pricingHint(g: GameState, productId: ProductId = primaryProductId(g)): PricingHint {
+  const pf = productStateOf(g, productId).priceFeedback ?? 0;
   if (g.stats.daysPlayed < 1) return { verdict: "fair", text: "set a price & watch reviews" };
   if (pf > 0.22) return { verdict: "raise", text: "a bargain — could charge more" };
   if (pf < -0.18) return { verdict: "pricey", text: "a few find you pricey" };

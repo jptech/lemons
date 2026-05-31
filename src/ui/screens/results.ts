@@ -5,6 +5,7 @@ import { EVENT_BY_ID } from "../../data/events";
 import { GOAL_BY_ID } from "../../data/goals";
 import { ACHIEVEMENT_BY_ID } from "../../data/achievements";
 import { GOALS } from "../../data/goals";
+import { PRODUCT_BY_ID } from "../../data/products";
 import type { DayResult, GameState } from "../../engine";
 import { h, type Child } from "../dom";
 import { button, panel, pill, statBlock, statCard } from "../components";
@@ -224,7 +225,26 @@ function reviewsPanel(r: DayResult): HTMLElement {
       barChart(starBars, { title: "Star ratings", yFormat: (n) => String(Math.round(n)) }),
       barChart(drivers, { title: "What built your reputation", yFormat: (n) => `${Math.round(n)}%`, height: 200 }),
     ]),
+    menuMix(r),
     feedbackLine(r),
+  );
+}
+
+/** Per-product sales mix (only when more than one product was on the menu). */
+function menuMix(r: DayResult): Child {
+  const entries = Object.entries(r.perProduct ?? {});
+  if (entries.length < 2) return null;
+  return h(
+    "div.menu-mix",
+    {},
+    entries.map(([id, p]) => {
+      const def = PRODUCT_BY_ID[id];
+      return h("span.menu-mix__item", { title: `${def?.name ?? id}: ${money(p!.revenue)}` }, [
+        `${def?.icon ?? "🥤"} ${def?.name ?? id}`,
+        h("strong", {}, ` ${p!.cupsSold}`),
+        h("span.muted", {}, ` cups · ${p!.avgStars.toFixed(1)}★`),
+      ]);
+    }),
   );
 }
 

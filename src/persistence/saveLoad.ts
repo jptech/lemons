@@ -3,7 +3,7 @@
  * game is deterministic from {seed, state}, so the save is just the GameState
  * (no frame log). Loading a corrupt/old save fails soft (returns null).
  */
-import { TUNING, type GameState } from "../engine";
+import { TUNING, freshProductState, type GameState } from "../engine";
 import { LEGACY_EQUIPMENT_MAP } from "../data/equipment";
 
 const KEY = "lemonadeLane.save.v1";
@@ -14,22 +14,24 @@ interface Envelope {
   game: GameState;
 }
 
-/** Sequential migrations keyed by the version they upgrade FROM. */
-const MIGRATIONS: Record<number, (g: GameState) => GameState> = {
+/** Sequential migrations keyed by the version they upgrade FROM. Each receives
+ *  a loosely-typed prior-shape game (old fields may differ from the current
+ *  GameState) and returns a game one version newer. */
+const MIGRATIONS: Record<number, (g: any) => GameState> = {
   // 1 -> 2: add saved recipe-feedback signal.
   1: (g) => ({ ...g, recipeFeedback: g.recipeFeedback ?? { lemon: 0, sugar: 0, ice: 0 } }),
   // 2 -> 3: remap flat equipment ids onto the new upgrade-line ids; add price feedback.
   2: (g) => ({
     ...g,
-    ownedEquipmentIds: (g.ownedEquipmentIds ?? []).map((id) => LEGACY_EQUIPMENT_MAP[id] ?? id),
+    ownedEquipmentIds: (g.ownedEquipmentIds ?? []).map((id: string) => LEGACY_EQUIPMENT_MAP[id] ?? id),
     priceFeedback: g.priceFeedback ?? 0,
   }),
   // 3 -> 4: round any fractional stock left by the old fractional-batch bug.
   3: (g) => ({
     ...g,
     inventory: (g.inventory ?? [])
-      .map((lot) => ({ ...lot, qty: Math.round(lot.qty) }))
-      .filter((lot) => lot.qty > 0),
+      .map((lot: { qty: number }) => ({ ...lot, qty: Math.round(lot.qty) }))
+      .filter((lot: { qty: number }) => lot.qty > 0),
   }),
   // 4 -> 5: split the single reputation scalar into four equal facets (neutral —
   // a loaded save plays identically next day, then the facets differentiate).
@@ -51,6 +53,32 @@ const MIGRATIONS: Record<number, (g: GameState) => GameState> = {
     ...g,
     supplier: g.supplier ?? { priceIndex: { lemon: 1, sugar: 1, ice: 1, cup: 1 } },
   }),
+  // 6 -> 7: wrap the singular recipe/quality/feedback into a per-product map
+  // (classic) and seed the second product; menu starts with just classic.
+  6: (g) => {
+    const anyG = g as unknown as {
+      recipe?: GameState["products"]["classic"]["recipe"];
+      qualityScoreEMA?: number;
+      recipeFeedback?: { lemon: number; sugar: number; ice: number };
+      priceFeedback?: number;
+    };
+    const classic = {
+      recipe: anyG.recipe ?? freshProductState("classic").recipe,
+      qualityScoreEMA: anyG.qualityScoreEMA ?? 0.5,
+      recipeFeedback: anyG.recipeFeedback ?? { lemon: 0, sugar: 0, ice: 0 },
+      priceFeedback: anyG.priceFeedback ?? 0,
+    };
+    const out = {
+      ...g,
+      menu: g.menu ?? ["classic"],
+      products: g.products ?? { classic, pink: freshProductState("pink") },
+    };
+    delete (out as Record<string, unknown>).recipe;
+    delete (out as Record<string, unknown>).qualityScoreEMA;
+    delete (out as Record<string, unknown>).recipeFeedback;
+    delete (out as Record<string, unknown>).priceFeedback;
+    return out;
+  },
 };
 
 function migrate(game: GameState, fromVersion: number): GameState {
@@ -73,7 +101,8 @@ function looksLikeGame(g: unknown): g is GameState {
     typeof o.currentLocationId === "string" &&
     Array.isArray(o.inventory) &&
     Array.isArray(o.history) &&
-    typeof o.recipe === "object"
+    // Either the new per-product map or a legacy single recipe (pre-migration).
+    (typeof o.products === "object" || typeof o.recipe === "object")
   );
 }
 

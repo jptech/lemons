@@ -141,7 +141,7 @@ describe("price feedback (discovery)", () => {
         s = buyStock(s, "cup", 130);
         s = simulateDay(s).state;
       }
-      return s.priceFeedback;
+      return s.products.classic.priceFeedback;
     }
     expect(run(3.5)).toBeLessThan(0); // pricey
     expect(run(0.75)).toBeGreaterThan(0); // bargain → room to raise

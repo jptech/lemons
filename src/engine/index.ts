@@ -11,6 +11,7 @@ export { DaySim } from "./dayLoop";
 export {
   setPrice,
   setRecipe,
+  toggleMenuProduct,
   buyStock,
   discardStock,
   maxBuyable,
@@ -61,6 +62,16 @@ export {
   nextBulkTier,
   gradeQualityBonus,
 } from "./supplier";
+
+export {
+  freshProducts,
+  freshProductState,
+  primaryProductId,
+  primaryProduct,
+  productStateOf,
+  activeProducts,
+  productTaste,
+} from "./menu";
 
 export { TUNING } from "./tuning";
 

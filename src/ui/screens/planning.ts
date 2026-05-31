@@ -9,6 +9,7 @@ import { WEATHER_ICON, WEATHER_LABEL } from "../../data/weather";
 import { EVENT_BY_ID } from "../../data/events";
 import { GOALS } from "../../data/goals";
 import {
+  activeProducts,
   derive,
   equipmentStatus,
   idealRecipe,
@@ -17,13 +18,18 @@ import {
   inventoryQty,
   maxBuyable,
   nextBulkTier,
+  primaryProductId,
+  productStateOf,
+  productTaste,
   recipeQuality,
   TUNING,
   type GameState,
   type ItemGrade,
   type ItemId,
+  type ProductId,
   type Recipe,
 } from "../../engine";
+import { PRODUCTS, PRODUCT_BY_ID } from "../../data/products";
 import { h, type Child } from "../dom";
 import { button, panel, pill, slider, statBlock } from "../components";
 import { money, moneyShort, pct } from "../format";
@@ -180,8 +186,8 @@ function insightPanel(g: GameState): HTMLElement {
       statBlock("Expected crowd", `~${f.crowdLow}–${f.crowdHigh}`, confidenceWord(f.confidence)),
       statBlock("Likely sales", `~${f.low}–${f.high}`, h("span", { class: f.limiter === "crowd" ? "muted" : "neg" }, LIMITER_NOTE[f.limiter])),
       statBlock("Projected take", `${moneyShort(f.revenueLow)}–${moneyShort(f.revenueHigh)}`, `before ${moneyShort(costs.total)} costs`),
-      statBlock("Recipe match", pct(quality), qualityHint(g)),
-      statBlock("Your price", money(g.recipe.pricePerCup), h("span", { class: priceClass }, ph.text)),
+      statBlock("Recipe match", pct(quality), qualityHint(g, primaryProductId(g))),
+      statBlock("Your price", money(productStateOf(g, primaryProductId(g)).recipe.pricePerCup), h("span", { class: priceClass }, ph.text)),
     ]),
   ]);
 }
@@ -224,10 +230,11 @@ function reputationPanel(g: GameState): HTMLElement {
   return panel("🏅", "Reputation", ...children);
 }
 
-function qualityHint(g: GameState): string {
-  const ideal = idealRecipe(sel.forecastWeather(g));
-  const sum = g.recipe.lemons + g.recipe.sugar + g.recipe.ice || 1;
-  const have: [number, number, number] = [g.recipe.lemons / sum, g.recipe.sugar / sum, g.recipe.ice / sum];
+function qualityHint(g: GameState, productId: ProductId): string {
+  const ideal = idealRecipe(sel.forecastWeather(g), productTaste(productId));
+  const r = productStateOf(g, productId).recipe;
+  const sum = r.lemons + r.sugar + r.ice || 1;
+  const have: [number, number, number] = [r.lemons / sum, r.sugar / sum, r.ice / sum];
   const names = ["lemon", "sugar", "ice"] as const;
   let worstI = 0;
   let worst = 0;
@@ -247,16 +254,26 @@ function qColor(q: number): string {
   return q > 0.7 ? "var(--c-mint)" : q > 0.45 ? "var(--c-sun)" : "var(--c-coral)";
 }
 
+/** The Menu panel: a recipe+price editor per active product, plus add/remove. */
 function recipePanel(g: GameState): HTMLElement {
-  const r = g.recipe;
+  const editors = activeProducts(g).map((ap) => productEditor(g, ap.id));
+  return panel("🧪", g.menu.length > 1 ? "Menu & Recipes" : "Recipe & Price", ...editors, menuManager(g));
+}
+
+function productEditor(g: GameState, productId: ProductId): HTMLElement {
+  const def = PRODUCT_BY_ID[productId]!;
+  const r = productStateOf(g, productId).recipe;
   const wx = sel.forecastWeather(g);
+  const taste = productTaste(productId);
   const live: Recipe = { ...r };
+  const multi = g.menu.length > 1;
+  const isPrimary = primaryProductId(g) === productId;
 
   // Live quality preview that updates during a drag (no store write).
   const qFill = h("div.meter__fill", {}) as HTMLElement;
   const qLabel = h("span.num", {}) as HTMLElement;
   const paintQuality = () => {
-    const q = recipeQuality(live, wx);
+    const q = recipeQuality(live, wx, undefined, taste);
     qFill.style.width = `${Math.max(0, Math.min(1, q)) * 100}%`;
     qFill.style.background = qColor(q);
     qLabel.textContent = pct(q);
@@ -274,12 +291,20 @@ function recipePanel(g: GameState): HTMLElement {
         live[key] = v;
         paintQuality();
       },
-      onInput: (v) => actions.setRecipe({ [key]: v }),
+      onInput: (v) => actions.setRecipe({ [key]: v }, productId),
     });
 
-  return panel(
-    "🧪",
-    "Recipe & Price",
+  const header = multi
+    ? h("div.product-head", {}, [
+        h("strong", {}, `${def.icon} ${def.name}`),
+        isPrimary
+          ? h("span.pill.product-tag", {}, "primary")
+          : button("✕ Remove", () => actions.toggleMenuProduct(productId), { size: "sm", variant: "ghost" }),
+      ])
+    : null;
+
+  return h(multi ? "div.product-editor" : "div", {}, [
+    header,
     part("lemons", "Lemons", "🍋", 0, 10),
     part("sugar", "Sugar", "🍬", 0, 10),
     part("ice", "Ice", "🧊", 0, 10),
@@ -288,7 +313,7 @@ function recipePanel(g: GameState): HTMLElement {
       h("div.row.row--between", {}, [h("span.muted", {}, "Quality vs forecast"), qLabel]),
       h("div.meter", {}, [qFill]),
     ]),
-    recipeFeedbackBox(g),
+    recipeFeedbackBox(g, productId),
     slider({
       label: "Price per cup",
       icon: "💵",
@@ -296,23 +321,41 @@ function recipePanel(g: GameState): HTMLElement {
       max: 6,
       step: 0.05,
       value: r.pricePerCup,
-      onInput: (v) => actions.setPrice(v),
+      onInput: (v) => actions.setPrice(v, productId),
       format: (v) => money(v),
     }),
-    pricingHintLine(g),
-  );
+    pricingHintLine(g, productId),
+  ]);
 }
 
-function pricingHintLine(g: GameState): HTMLElement {
-  const ph = sel.pricingHint(g);
+/** Add/remove the optional products (capped at 2 active in Phase 1). */
+function menuManager(g: GameState): Child {
+  const offMenu = PRODUCTS.filter((p) => !g.menu.includes(p.id));
+  if (!offMenu.length) return null;
+  const atCap = g.menu.length >= 2;
+  return h("div.menu-manager", {}, [
+    h("p.muted.small", {}, atCap ? "Menu full (2). Remove one to swap." : "Add a second drink to widen your appeal — it splits your crew's time, so it's a trade-off."),
+    ...offMenu.map((p) =>
+      optionBtn(
+        h("span", {}, [`${p.icon} ${p.name}`, h("span.muted.small", {}, ` — ${p.blurb}`)]),
+        atCap ? "full" : "+ Add",
+        () => actions.toggleMenuProduct(p.id),
+        { variant: "sky", disabled: atCap },
+      ),
+    ),
+  ]);
+}
+
+function pricingHintLine(g: GameState, productId: ProductId): HTMLElement {
+  const ph = sel.pricingHint(g, productId);
   const icon = ph.verdict === "raise" ? "📈" : ph.verdict === "pricey" ? "💸" : "👍";
   const cls = ph.verdict === "pricey" ? "neg" : ph.verdict === "raise" ? "pos" : "muted";
   return h("p.price-hint", { class: cls }, `${icon} ${ph.text}`);
 }
 
-/** Persistent, learned guidance from recent customer reviews. */
-function recipeFeedbackBox(g: GameState): Child {
-  const fb = g.recipeFeedback ?? { lemon: 0, sugar: 0, ice: 0 };
+/** Persistent, learned guidance from recent customer reviews (per product). */
+function recipeFeedbackBox(g: GameState, productId: ProductId): Child {
+  const fb = productStateOf(g, productId).recipeFeedback ?? { lemon: 0, sugar: 0, ice: 0 };
   const TH = 0.035;
   const parts: { key: "lemons" | "sugar" | "ice"; delta: number; word: string }[] = [];
   if (Math.abs(fb.lemon) > TH) parts.push({ key: "lemons", delta: Math.sign(fb.lemon), word: `${fb.lemon > 0 ? "more" : "less"} 🍋 lemon` });
@@ -329,8 +372,9 @@ function recipeFeedbackBox(g: GameState): Child {
     h("div", {}, [h("strong", {}, "📝 Guests lately wished for: "), parts.map((p) => p.word).join(", ")]),
     button("✨ Apply suggestion", () => {
       const patch: Partial<Recipe> = {};
-      for (const p of parts) patch[p.key] = g.recipe[p.key] + p.delta;
-      actions.setRecipe(patch);
+      const base = productStateOf(g, productId).recipe;
+      for (const p of parts) patch[p.key] = base[p.key] + p.delta;
+      actions.setRecipe(patch, productId);
     }, { size: "sm", variant: "mint" }),
   ]);
 }
