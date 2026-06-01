@@ -416,13 +416,19 @@ function stockPanel(g: GameState): HTMLElement {
     "Stock",
     h("div.storage", {}, [
       h("div.row.row--between", {}, [
-        h("span.muted", {}, "Storage space"),
-        h("span.num", { class: frac > 0.92 ? "neg" : "" }, `${Math.round(st.used)} / ${st.capacity} slots`),
+        h("span.muted.small", {}, "Storage"),
+        h("span.num.storage__count", { class: frac > 0.92 ? "neg" : "" }, [
+          `${Math.round(st.used)}`,
+          h("span.muted", {}, ` / ${st.capacity} slots`),
+        ]),
       ]),
-      h("div.segbar", {}, segments),
-      h("p.stock__legend.muted", {}, `Bulky items eat more space: 🧊 ${itemsPerSlot("ice")}/slot · 🍋 ${itemsPerSlot("lemon")}/slot · 🍬 ${itemsPerSlot("sugar")}/slot · 🥤 ${itemsPerSlot("cup")}/slot`),
+      h(
+        "div.segbar",
+        { title: STOCK_ROWS.map((r) => `${r.name}: ${itemsPerSlot(r.item)}/slot`).join("  ·  ") },
+        segments,
+      ),
     ]),
-    ...STOCK_ROWS.map((row) => stockRow(g, row)),
+    h("div.stocklist", {}, STOCK_ROWS.map((row) => stockRow(g, row))),
   );
 }
 
@@ -457,43 +463,41 @@ function stockRow(g: GameState, row: (typeof STOCK_ROWS)[number]): HTMLElement {
       ])
     : null;
 
-  // A single compact meta line: freshness/spoilage · slots (+ grade split).
+  // Compact meta: freshness/spoilage · slots (· premium count).
   const metaBits: Child[] = [h("span", {}, row.note(g)), h("span.dotsep", {}, "·"), h("span", {}, `${slotsUsed.toFixed(1)} slots`)];
   if (hasPremium && byGrade.premium > 0) {
-    metaBits.push(h("span.dotsep", {}, "·"), h("span.grade-split__prem", {}, `✨ ${byGrade.premium} premium`));
+    metaBits.push(h("span.dotsep", {}, "·"), h("span.grade-split__prem", {}, `✨ ${byGrade.premium}`));
   }
 
-  const hint =
+  // Tiny trailing note: premium perk or the next bulk break.
+  const note =
     grade === "premium"
-      ? h("span.bulk-hint.pos", {}, `✨ premium — up to +${Math.round(TUNING.GRADE_QUALITY_BONUS * 100)}% taste`)
+      ? h("span.stockrow__note.pos", {}, `✨ +${Math.round(TUNING.GRADE_QUALITY_BONUS * 100)}% taste`)
       : canFitTier
-        ? h("span.bulk-hint.muted", {}, `buy ${nextTier!.min}+ → −${Math.round((1 - nextTier!.mult) * 100)}% bulk`)
+        ? h("span.stockrow__note.muted", {}, `${nextTier!.min}+ saves ${Math.round((1 - nextTier!.mult) * 100)}%`)
         : null;
 
+  // Segmented buy bar — one sleek control that spans the row width.
+  const buyBar = h("div.buybar", {}, [
+    h("button.buybar__btn", { onClick: () => actions.discardStock(row.item, 10), disabled: have <= 0 }, "−10"),
+    h("button.buybar__btn", { onClick: () => actions.buyStock(row.item, 10, grade) }, "+10"),
+    h("button.buybar__btn", { onClick: () => actions.buyStock(row.item, 50, grade) }, "+50"),
+    h("button.buybar__btn.buybar__btn--max", { onClick: () => actions.buyMax(row.item, grade) }, "Max"),
+  ]);
+
   return h("div.stockrow", {}, [
-    // Row 1 — identity + live price.
     h("div.stockrow__head", {}, [
-      h("span.stockrow__name", {}, [
-        h("span.stock__dot", { style: { background: ITEM_COLOR[row.item] } }),
-        `${row.icon} ${row.name}`,
-      ]),
+      h("span.stock__dot", { style: { background: ITEM_COLOR[row.item] } }),
+      h("span.stockrow__name", {}, `${row.icon} ${row.name}`),
       h("span.stockrow__have.num", {}, `${have}`),
       h("span.stockrow__price", { class: eventSpiked ? "neg" : "" }, [money(price), trendChip]),
     ]),
-    // Row 2 — compact meta.
-    h("div.stockrow__meta.muted", {}, metaBits),
-    spoils > 0 ? h("span.spoil-warn", {}, `⚠️ ${spoils} ${row.item === "ice" ? "melt" : "spoil"} tonight`) : null,
-    // Row 3 — grade choice (if any) + buy controls, grouped.
-    h("div.stockrow__buy", {}, [
-      gradeToggle ?? h("span", {}),
-      h("div.stockrow__controls", {}, [
-        button("−10", () => actions.discardStock(row.item, 10), { size: "sm", variant: "ghost" }),
-        button("+10", () => actions.buyStock(row.item, 10, grade), { size: "sm", variant: "ghost" }),
-        button("+50", () => actions.buyStock(row.item, 50, grade), { size: "sm", variant: "ghost" }),
-        button("Max", () => actions.buyMax(row.item, grade), { size: "sm", variant: "sky" }),
-      ]),
+    h("div.stockrow__meta.muted", {}, [
+      h("span.stockrow__metatext", {}, metaBits),
+      note,
     ]),
-    hint,
+    spoils > 0 ? h("span.spoil-warn", {}, `⚠️ ${spoils} ${row.item === "ice" ? "melt" : "spoil"} tonight`) : null,
+    gradeToggle ? h("div.stockrow__controls", {}, [gradeToggle, buyBar]) : buyBar,
   ]);
 }
 

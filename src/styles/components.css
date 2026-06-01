@@ -357,27 +357,28 @@
 /* ---- Supplier market: grade toggle, price trend, hints ---- */
 .price-trend {
   font-weight: 800;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   white-space: nowrap;
 }
 .grade-toggle {
-  display: inline-flex;
+  display: flex;
   gap: 0;
-  margin-top: var(--sp-1);
   border: 2px solid var(--c-line);
   border-radius: var(--radius-pill);
   overflow: hidden;
-  width: fit-content;
+  width: 100%;
 }
 .grade-pill {
+  flex: 1 1 0;
   border: none;
   background: transparent;
-  padding: 2px 10px;
+  padding: 5px 8px;
   font-family: inherit;
   font-weight: 800;
-  font-size: 0.74rem;
+  font-size: 0.76rem;
   color: var(--c-ink);
   cursor: pointer;
+  text-align: center;
   transition: background var(--t-fast);
 }
 .grade-pill:hover { background: var(--c-cream); }
@@ -675,70 +676,100 @@
 }
 
 /* ---- Stock rows (sleek 3-zone: identity+price / meta / grade+buy) ---- */
+.stocklist {
+  display: flex;
+  flex-direction: column;
+}
 .stockrow {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   padding: var(--sp-3) 0;
-  border-top: 1px dashed var(--c-line);
+  border-top: 1px solid var(--c-line);
 }
+.stockrow:first-child { border-top: none; padding-top: var(--sp-1); }
 .stockrow__head {
   display: flex;
-  align-items: baseline;
-  gap: var(--sp-2);
+  align-items: center;
+  gap: 6px;
 }
 .stockrow__name {
-  display: flex;
-  align-items: center;
-  gap: 5px;
   font-weight: 800;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
 }
 .stockrow__have {
   color: var(--c-ink-soft);
   font-weight: 800;
-  font-size: 0.95rem;
+  font-size: 0.86rem;
 }
 .stockrow__have::before {
   content: "×";
-  opacity: 0.5;
-  margin-right: 2px;
+  opacity: 0.45;
+  margin-right: 1px;
 }
 .stockrow__price {
   margin-left: auto;
-  font-weight: 700;
-  font-size: 0.85rem;
+  font-weight: 800;
+  font-size: 0.86rem;
   white-space: nowrap;
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 5px;
 }
 .stockrow__price.neg { color: var(--c-coral); }
 .stockrow__meta {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.76rem;
-}
-.dotsep { opacity: 0.4; }
-.stockrow__buy {
-  display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: var(--sp-2);
-  flex-wrap: wrap;
+  font-size: 0.75rem;
+  line-height: 1.3;
 }
+.stockrow__metatext {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+.stockrow__note { white-space: nowrap; font-weight: 700; flex: none; }
+.dotsep { opacity: 0.4; }
 .stockrow__controls {
   display: flex;
-  gap: 4px;
-  justify-content: flex-end;
-  margin-left: auto;
+  flex-direction: column;
+  gap: 6px;
 }
-.stockrow .btn--sm {
-  padding: var(--sp-1) var(--sp-2);
-  min-width: 36px;
+
+/* Segmented buy bar — a single sleek control that spans the row width. */
+.buybar {
+  display: flex;
+  border: 2px solid var(--c-line);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: #fff;
 }
+.buybar__btn {
+  flex: 1 1 0;
+  min-width: 0;
+  appearance: none;
+  border: none;
+  border-left: 2px solid var(--c-line);
+  background: transparent;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 0.82rem;
+  color: var(--c-ink);
+  padding: 7px 0;
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+.buybar__btn:first-child { border-left: none; }
+.buybar__btn:hover:not(:disabled) { background: var(--c-cream); }
+.buybar__btn:disabled { opacity: 0.4; cursor: default; }
+.buybar__btn--max {
+  background: var(--c-sky);
+  color: #fff;
+}
+.buybar__btn--max:hover:not(:disabled) { background: var(--c-sky); filter: brightness(1.06); }
 .spoil-warn {
   display: inline-block;
   margin-top: 2px;

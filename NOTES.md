@@ -292,6 +292,11 @@ Tagged by effort. Pulled from the theme review; trim/expand as we go.
     cups/revenue/★/share + aggregate total row).
   - **Menu add-drink row** redesigned (`.menu-add`): name + wrapping blurb left,
     compact "+ Add" button right — fixes the 3-line "Pink Lemonade" overflow.
-  - **Stock card** redesigned into a sleek 3-zone row: identity + live price on
-    one line, a compact meta line (freshness · slots · premium count), then the
-    grade toggle grouped with the buy controls, with the bulk/grade hint beneath.
+  - **Stock card** redesigned for density + coherence: dropped the wordy
+    "bulky items eat more space" legend (the colored segbar conveys it, slot
+    costs live in a tooltip); each item is now a tight stack — identity + live
+    price, a compact meta line with the bulk hint tucked to its right
+    (`freshest 3 days · 1.4 slots · ✨26` … `120+ saves 12%`), and **two
+    full-width segmented controls** (a Standard/Premium grade selector + a
+    `−10 │ +10 │ +50 │ Max` buy bar, `.buybar`) that read as a coherent pair and
+    use the row width fully.
