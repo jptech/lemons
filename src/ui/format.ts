@@ -7,6 +7,13 @@ export function money(n: number): string {
   return `${neg ? "-" : ""}$${s}`;
 }
 
+/** Whole-dollar amounts (equipment, wages, rent, marketing) — never shows cents,
+ *  so $80 and $260 read consistently (vs money()'s "$80.00" / "$260"). */
+export function moneyWhole(n: number): string {
+  const neg = n < 0;
+  return `${neg ? "-" : ""}$${Math.abs(Math.round(n)).toLocaleString("en-US")}`;
+}
+
 export function moneyShort(n: number): string {
   const neg = n < 0;
   const v = Math.abs(n);

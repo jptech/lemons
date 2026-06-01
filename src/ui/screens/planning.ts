@@ -32,7 +32,7 @@ import {
 import { PRODUCTS, PRODUCT_BY_ID } from "../../data/products";
 import { h, type Child } from "../dom";
 import { button, panel, pill, slider, statBlock } from "../components";
-import { money, moneyShort, pct } from "../format";
+import { money, moneyShort, moneyWhole, pct } from "../format";
 
 const STOCK_ROWS: { item: ItemId; icon: string; name: string; note: (g: GameState) => string }[] = [
   {
@@ -527,7 +527,7 @@ function marketingPanel(g: GameState): HTMLElement {
       MARKETING_TIERS.map((t) =>
         optionBtn(
           `${t.icon} ${t.name}`,
-          t.spend > 0 ? money(t.spend) : "free",
+          t.spend > 0 ? moneyWhole(t.spend) : "free",
           () => actions.setMarketing(t.spend),
           { selected: g.marketingSpend === t.spend, disabled: t.spend > g.cash + g.marketingSpend },
         ),
@@ -593,7 +593,7 @@ function equipmentContent(g: GameState): Child[] {
         } else {
           const st = equipmentStatus(g, next.id);
           if (st.kind === "buyable" || st.kind === "tooExpensive") {
-            action = button(money(next.cost), () => actions.buyEquipment(next.id), { size: "sm", disabled: st.kind === "tooExpensive" });
+            action = button(moneyWhole(next.cost), () => actions.buyEquipment(next.id), { size: "sm", disabled: st.kind === "tooExpensive" });
           } else {
             action = h("span.pill.pill--locked", {}, "🔒");
             rowClass = "shop__row--locked";
@@ -632,7 +632,7 @@ function staffContent(g: GameState): Child[] {
       h("div.shop__row", {}, [
         h("div.shop__icon", {}, st.icon),
         h("div.shop__info", {}, [
-          h("strong", {}, [st.name, h("span.lvl", {}, `${money(st.wage)}/day`)]),
+          h("strong", {}, [st.name, h("span.lvl", {}, `${moneyWhole(st.wage)}/day`)]),
           h("div.small.muted", {}, staffBenefit(st)),
         ]),
         h("div.shop__action.shop__action--group", {}, [
@@ -657,7 +657,7 @@ function staffContent(g: GameState): Child[] {
                 h("div.small.muted", {}, staffBenefit(t)),
               ]),
               h("div.shop__action.shop__action--group", {}, [
-                h("span.small.muted", {}, `${money(t.wage)}/day`),
+                h("span.small.muted", {}, `${moneyWhole(t.wage)}/day`),
                 button("Hire", () => actions.hireStaff(t.tier), { size: "sm", variant: "sky" }),
               ]),
             ]),
@@ -680,14 +680,14 @@ function locationContent(g: GameState): Child[] {
           ? pill("📍 here")
           : unlocked
             ? button("Move", () => actions.moveLocation(loc.id), { size: "sm", variant: "sky" })
-            : button(`Unlock ${money(loc.unlockCost)}`, () => actions.unlockLocation(loc.id), { size: "sm", disabled: loc.unlockCost > g.cash });
+            : button(`Unlock ${moneyWhole(loc.unlockCost)}`, () => actions.unlockLocation(loc.id), { size: "sm", disabled: loc.unlockCost > g.cash });
         return h("div.loc-row", { class: here ? "loc-row--here" : "" }, [
           h("div.shop__icon", {}, loc.icon),
           h("div.loc-row__info", {}, [
             h("strong", {}, loc.name),
             h("div.loc-row__stats.small.muted", {}, [
               h("span", {}, `🚶 ~${loc.baseTraffic} traffic`),
-              h("span", {}, `💵 ${money(loc.rentPerDay)}/day rent`),
+              h("span", {}, `💵 ${moneyWhole(loc.rentPerDay)}/day rent`),
               h("span", {}, `🏷️ ${money(loc.priceToleranceBase)} price ceiling`),
             ]),
           ]),

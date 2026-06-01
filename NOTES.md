@@ -305,3 +305,8 @@ Tagged by effort. Pulled from the theme review; trim/expand as we go.
     (`justify-content: center`) instead of stretching full-width — which had
     flung shop-row prices to the far edge. (Audit verdict: Stock was the outlier;
     Equipment/Staff/Locations/Marketing/Reputation cards were already coherent.)
+  - **Consistency polish**: new `moneyWhole()` formatter for always-whole-dollar
+    amounts (equipment, wages, rent, unlock, marketing) so they read "$80 / $260"
+    instead of `money()`'s mixed "$80.00 / $260"; equipment/maxed action pills get
+    a shared `min-width` so their edges line up down the column; Marketing options
+    tightened (less padding) since it's a quick 4-way pick.

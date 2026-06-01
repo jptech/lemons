@@ -825,6 +825,14 @@
 .shop__action {
   justify-self: end;
 }
+/* Single-action rows (equipment price / maxed) share a width so their pills
+   line up down the column instead of having ragged left edges. */
+.shop__action:not(.shop__action--group) > .btn,
+.shop__action:not(.shop__action--group) > .pill:not(.pill--locked) {
+  min-width: 78px;
+  justify-content: center;
+  text-align: center;
+}
 .shop__action--group {
   display: flex;
   flex-wrap: wrap;
@@ -861,7 +869,12 @@
   justify-content: space-between;
   gap: var(--sp-3);
   text-align: left;
+  /* tighter than a default button — marketing is a quick 4-way pick */
+  padding: var(--sp-2) var(--sp-4);
+  font-size: 0.92rem;
+  box-shadow: 0 3px 0 var(--c-line);
 }
+.opt-btn.btn--mint { box-shadow: 0 3px 0 var(--c-mint-deep, #51cf66); }
 .opt-btn__label {
   font-weight: 700;
 }
