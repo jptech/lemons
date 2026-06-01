@@ -45,12 +45,16 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
+  justify-content: center; /* a lone wrapped column stays centered, not stretched */
   gap: var(--sp-4);
 }
 .dashboard__col {
   flex: 1 1 320px;
   /* don't compress narrower than this — wrap to fewer columns instead */
   min-width: 300px;
+  /* and don't stretch a lone wrapped column to the full row width (which would
+     fling shop-row prices to the far edge) — keep it a sensible card width */
+  max-width: 480px;
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);

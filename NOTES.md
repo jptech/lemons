@@ -300,3 +300,8 @@ Tagged by effort. Pulled from the theme review; trim/expand as we go.
     full-width segmented controls** (a Standard/Premium grade selector + a
     `−10 │ +10 │ +50 │ Max` buy bar, `.buybar`) that read as a coherent pair and
     use the row width fully.
+  - **Responsive wrap fix**: a lone column that wraps (the Grow panel at the
+    2-column breakpoint) is capped (`max-width: 480px`) and centred
+    (`justify-content: center`) instead of stretching full-width — which had
+    flung shop-row prices to the far edge. (Audit verdict: Stock was the outlier;
+    Equipment/Staff/Locations/Marketing/Reputation cards were already coherent.)
