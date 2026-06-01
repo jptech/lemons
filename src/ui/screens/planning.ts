@@ -65,12 +65,12 @@ export function renderPlanning(s: AppState): HTMLElement {
     topbar(g),
     s.toast ? h("div.toast", {}, s.toast) : null,
     insightPanel(g),
-    h("div.grid.grid--panels", {}, [
-      recipePanel(g),
-      stockPanel(g),
-      reputationPanel(g),
-      marketingPanel(g),
-      growPanel(g),
+    // Fixed columns (independent stacks) — cards never jump between columns, so
+    // changing one card's height (e.g. a Grow tab) doesn't reflow the others.
+    h("div.dashboard", {}, [
+      h("div.dashboard__col", {}, [recipePanel(g), marketingPanel(g)]),
+      h("div.dashboard__col", {}, [stockPanel(g), reputationPanel(g)]),
+      h("div.dashboard__col", {}, [growPanel(g)]),
     ]),
     financeBar(g),
     openBar(g),
@@ -541,7 +541,7 @@ let growTab: GrowTab = "equipment";
 function growPanel(g: GameState): HTMLElement {
   const tabs: { id: GrowTab; label: string }[] = [
     { id: "equipment", label: "🛠️ Equipment" },
-    { id: "staff", label: `🧑‍🍳 Staff ${g.staff.length}/${TUNING.STAFF_CAP}` },
+    { id: "staff", label: "🧑‍🍳 Staff" },
     { id: "locations", label: "📍 Locations" },
   ];
   const content =
@@ -623,7 +623,7 @@ function staffBenefit(s: { serveSpeedBonus: number; batchSpeedBonus: number }): 
 function staffContent(g: GameState): Child[] {
   const full = g.staff.length >= TUNING.STAFF_CAP;
   return [
-    h("p.muted.small", {}, `Each hire adds a serving station (max ${TUNING.STAFF_CAP}). Pricier staff work faster — worth it once your stations are full.`),
+    h("p.muted.small", {}, `${g.staff.length}/${TUNING.STAFF_CAP} hired. Each adds a serving station. Pricier staff work faster — worth it once your stations are full.`),
     ...g.staff.map((st) =>
       h("div.shop__row", {}, [
         h("div.shop__icon", {}, st.icon),

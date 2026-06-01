@@ -276,14 +276,18 @@ Tagged by effort. Pulled from the theme review; trim/expand as we go.
     over a station making each drink (`StationView.makeIcon`).
 
 - **Dashboard UI overhaul** (planning screen got busy as systems stacked up):
-  - **Masonry layout**: `.grid--panels` switched from an equal-height CSS grid to
-    a balanced multi-column (`column-count` + `break-inside: avoid`), so short
-    cards (Reputation, Marketing) tuck beside tall ones instead of leaving big
-    vertical gaps. Responsive: 3 → 2 → 1 columns.
+  - **Fixed-column layout** (`.dashboard` / `.dashboard__col`): three independent
+    flex-column stacks (kanban-style), each with a stable card assignment —
+    col 1 Recipe&Menu + Marketing, col 2 Stock + Reputation, col 3 Grow. Because
+    columns are independent, a card changing height (switching a Grow tab) only
+    grows its own column; **cards never jump between columns** (the earlier
+    `column-count` masonry rebalanced and reflowed on every height change — that
+    bug is gone). Wraps 3 → 2 → 1 via `flex-wrap` + a `min-width: 300px` per col.
   - **Tabbed "Grow" panel**: Equipment / Staff / Locations (the occasional
     "invest" actions) collapsed into one tabbed card (`growPanel` + `growTab`),
     so the dashboard is 5 cards instead of 7 and the tall Equipment list only
-    shows on demand. The three panel bodies are now `*Content()` helpers.
+    shows on demand. The three panel bodies are now `*Content()` helpers. Tabs
+    are equal-width (`flex: 1` + ellipsis) so they never overflow the card.
   - **Recap per-product table**: the recap's "By the menu" panel (per-product
     cups/revenue/★/share + aggregate total row).
   - **Menu add-drink row** redesigned (`.menu-add`): name + wrapping blurb left,

@@ -38,19 +38,28 @@
   gap: var(--sp-4);
 }
 
-/* Dashboard panels use a balanced masonry (CSS multi-column) so cards of very
-   different heights pack tightly — short cards (Reputation, Marketing) tuck in
-   beside tall ones instead of leaving big vertical gaps. */
-.grid--panels {
-  display: block;
-  column-count: 3;
-  column-gap: var(--sp-4);
+/* Dashboard = fixed, independent columns (kanban-style). Each column is its own
+   vertical stack, so a card changing height (e.g. switching a Grow tab) only
+   grows its own column — cards never jump between columns. Wraps responsively. */
+.dashboard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--sp-4);
 }
-.grid--panels > .panel {
-  break-inside: avoid;
-  /* a column item can't use grid gap, so space them with margin */
-  margin-bottom: var(--sp-4);
-  width: 100%;
+.dashboard__col {
+  flex: 1 1 320px;
+  /* don't compress narrower than this — wrap to fewer columns instead */
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+/* On a single column, let it fill the width fully. */
+@media (max-width: 660px) {
+  .dashboard__col {
+    min-width: 100%;
+  }
 }
 
 .grid--stats {
@@ -68,12 +77,6 @@
 }
 
 /* ---- Responsive ---- */
-@media (max-width: 1040px) {
-  .grid--panels {
-    column-count: 2;
-  }
-}
-
 @media (max-width: 820px) {
   .screen {
     padding: var(--sp-3) var(--sp-3) var(--sp-6);
@@ -84,9 +87,6 @@
   }
   .topbar__money {
     gap: var(--sp-4);
-  }
-  .grid--panels {
-    column-count: 1;
   }
   .hud__stats {
     gap: var(--sp-3);
