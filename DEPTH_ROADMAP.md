@@ -452,6 +452,29 @@ Goal: give a mastered business **somewhere to grow** so it doesn't saturate.
 Phase 2 leans entirely on Phase 1's seams (per-product menu, rep facets incl.
 Buzz, supplier contracts) so it's mostly additive.
 
+> **Status update (2026-06-06): C tackled first + a metrics/observability
+> workstream.** Phase 2 build order is being **resequenced to C → D → E₊** (C
+> first, ahead of D) for this round. Planning is complete; implementation is the
+> next step. Two workstreams are in flight together:
+>
+> - 🚧 **C — Research & training** (see below): promote the stubbed `research`
+>   equipment line into a small research *tree* (cash + *time* sink, effects fold
+>   into `derive()`) and add **staff XP / training** (`Staff.xp/level`,
+>   level-scaled serve/batch bonuses). Schema bump **7 → 8** with a neutral
+>   migration; XP gain + research progress are flat/deterministic (no new RNG).
+> - 🚧 **Metrics & reporting** (not a numbered item — delivers the analytics
+>   payoff A promised): capture the per-customer detail `settle()` currently
+>   discards — **demographics** (per-archetype served/lost/★/wait/tips),
+>   **waiting time** (avg/max + histogram), **recipe preferences** (per-product
+>   taste drift), and **regulars conversion** (delighted count, conversion rate,
+>   regulars gain/decay/net). All additive, optional `DayResult.metrics` fields
+>   (append-only `history` ⇒ **no migration**), zero new RNG draws. Surfaced on
+>   the Day Recap **and** Analytics screens.
+>
+> Full implementation plan: `~/.claude/plans/i-m-working-on-a-tingly-donut.md`.
+> **Not yet implemented** — nothing below is shipped. D and E₊ remain as written;
+> the Phase-1 priority follow-ups are still open.
+
 ---
 
 ## E₊ — Full menu & complementary items
@@ -582,6 +605,11 @@ exactly what a cash-rich late game needs. Training also makes staff a system you
 ---
 
 ## Phase 2 build order
+
+> **Note (2026-06-06):** for the current round we're doing **C first** (it's a
+> self-contained cash sink that needs no other Phase-2 system, and pairs with the
+> metrics workstream). The original D-first rationale below still holds for design
+> intent — treat it as the *default* order, now resequenced to C → D → E₊.
 
 1. **D — brand equity** first (it activates the Buzz facet from Phase 1 and is
    mostly engine + marketing-panel UI; high felt impact).

@@ -79,6 +79,18 @@ const MIGRATIONS: Record<number, (g: any) => GameState> = {
     delete (out as Record<string, unknown>).priceFeedback;
     return out;
   },
+  // 7 -> 8: add the research tree (none done/in progress) and backfill staff
+  // experience (xp/level = 0). Neutral — a loaded save plays identically, then
+  // staff start leveling and research becomes available.
+  7: (g) => ({
+    ...g,
+    research: g.research ?? { completed: [], inProgress: null },
+    staff: (g.staff ?? []).map((s: Record<string, unknown>) => ({
+      ...s,
+      xp: typeof s.xp === "number" ? s.xp : 0,
+      level: typeof s.level === "number" ? s.level : 0,
+    })),
+  }),
 };
 
 function migrate(game: GameState, fromVersion: number): GameState {

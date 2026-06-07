@@ -5,7 +5,7 @@
 import type { Condition, ItemId } from "./types";
 
 export const TUNING = {
-  SCHEMA_VERSION: 7,
+  SCHEMA_VERSION: 8,
   STARTING_CASH: 80,
 
   // --- Day structure ---
@@ -106,6 +106,18 @@ export const TUNING = {
 
   // --- Staff ---
   STAFF_CAP: 3,
+  // Staff experience: each day worked earns XP; training buys a chunk of it.
+  // Levels are derived from cumulative XP via STAFF_XP_FOR_LEVEL (index = level).
+  STAFF_XP_PER_DAY: 12,
+  STAFF_XP_FOR_LEVEL: [0, 60, 150, 300] as const, // level 0..3 thresholds
+  STAFF_MAX_LEVEL: 3,
+  STAFF_LEVEL_SERVE_GAIN: 0.12, // serve-speed bonus added per level
+  STAFF_LEVEL_BATCH_GAIN: 0.08, // batch-speed bonus added per level
+  STAFF_TRAIN_COST: 60, // cash for one training session
+  STAFF_TRAIN_XP: 40, // XP granted per training session
+
+  // --- Research tree (cash + days → permanent capability) ---
+  // Only one node researches at a time; progress ticks at day settlement.
 
   // --- Loans / soft failure ---
   LOAN_RATE_PER_DAY: 0.02,

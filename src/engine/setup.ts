@@ -54,6 +54,7 @@ export function newGame(seed: number, mode: GameMode = "campaign"): GameState {
     supplier: { priceIndex: { lemon: 1, sugar: 1, ice: 1, cup: 1 } },
     ownedEquipmentIds: [],
     staff: [],
+    research: { completed: [], inProgress: null },
     marketingSpend: 0,
     todayStockSpend: 0,
     todayEquipmentSpend: 0,

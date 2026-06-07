@@ -10,7 +10,9 @@ import {
   derive,
   effectiveFacets,
   effectiveReputation,
+  effectiveStaffBonus,
   forecastConfidence,
+  levelForXp,
   uniformFacets,
   type Derived,
 } from "./derive";
@@ -37,7 +39,10 @@ import { PRODUCT_BY_ID } from "../data/products";
 import { TUNING } from "./tuning";
 import type {
   ArchetypeDef,
+  ArchetypeId,
+  DayMetrics,
   DayResult,
+  DemographicsRow,
   GameState,
   InventoryLot,
   ItemId,
@@ -51,6 +56,7 @@ import type {
   StationView,
   WeatherDay,
 } from "./types";
+import { WAIT_BUCKETS_MIN } from "./types";
 import type { ProductTaste } from "./economy";
 
 // ---------------------------------------------------------------------------
@@ -184,6 +190,12 @@ export class DaySim {
   private delighted = 0;
   private iceAccum = 0;
 
+  // advanced metrics (additive bookkeeping — no extra RNG draws)
+  private readonly demo: Partial<Record<ArchetypeId, DemographicsRow>> = {};
+  private waitMinSum = 0; // total minutes waited over served customers
+  private waitMaxMin = 0; // longest wait of any served customer
+  private readonly waitHist: number[] = new Array(WAIT_BUCKETS_MIN.length + 1).fill(0);
+
   /** Additive quality bonus from premium taste solids brought into the day. */
   private readonly gradeBonus: number;
 
@@ -292,6 +304,30 @@ export class DaySim {
     return (this.state.day - 1) % 7;
   }
 
+  /** Lazily get (or create) the demographics accumulator for an archetype. */
+  private demoRow(id: ArchetypeId): DemographicsRow {
+    let row = this.demo[id];
+    if (!row) {
+      row = { arrived: 0, served: 0, lost: 0, revenue: 0, tips: 0, starSum: 0, starCount: 0, waitSum: 0, delighted: 0 };
+      this.demo[id] = row;
+    }
+    return row;
+  }
+
+  /** Tally a served customer's wait (minutes) into the global histogram. */
+  private recordWait(waited: number): void {
+    this.waitMinSum += waited;
+    if (waited > this.waitMaxMin) this.waitMaxMin = waited;
+    let bucket = WAIT_BUCKETS_MIN.length; // overflow bucket by default
+    for (let i = 0; i < WAIT_BUCKETS_MIN.length; i++) {
+      if (waited <= WAIT_BUCKETS_MIN[i]!) {
+        bucket = i;
+        break;
+      }
+    }
+    this.waitHist[bucket] = (this.waitHist[bucket] ?? 0) + 1;
+  }
+
   private buildStations(): Station[] {
     const stations: Station[] = [
       {
@@ -309,12 +345,13 @@ export class DaySim {
       },
     ];
     this.state.staff.forEach((st, i) => {
+      const bonus = effectiveStaffBonus(st);
       stations.push({
         id: i + 1,
         kind: "staff",
         role: st.role,
-        serveMult: this.derived.serveSpeedMult + st.serveSpeedBonus,
-        batchMult: this.derived.batchSpeedMult + st.batchSpeedBonus,
+        serveMult: this.derived.serveSpeedMult + bonus.serve,
+        batchMult: this.derived.batchSpeedMult + bonus.batch,
         state: "idle",
         ticksLeft: 0,
         taskTime: 1,
@@ -384,6 +421,7 @@ export class DaySim {
       if (c.waited > c.patience) {
         this.queue.splice(i, 1);
         this.reneged++;
+        this.demoRow(c.arch.id).lost++;
         events.push({ type: "renege", archetype: c.arch.id });
       }
     }
@@ -394,6 +432,7 @@ export class DaySim {
 
   private arrive(events: SimEvent[]) {
     const arch = this.pickArchetype();
+    this.demoRow(arch.id).arrived++;
     events.push({ type: "arrive", archetype: arch.id });
     const patience = Math.max(
       1,
@@ -421,6 +460,7 @@ export class DaySim {
     const maxQueue = Math.max(1, Math.ceil(patience * throughput));
     if (this.queue.length >= maxQueue) {
       this.balked++;
+      this.demoRow(arch.id).lost++;
       events.push({ type: "balk", archetype: arch.id });
       return;
     }
@@ -573,7 +613,15 @@ export class DaySim {
     this.fairSum += fairness;
     this.waitSum += wait;
     this.servedSatSum += satisfaction;
-    if (satisfaction >= TUNING.TIP_THRESHOLD) this.delighted++;
+    const delighted = satisfaction >= TUNING.TIP_THRESHOLD;
+    if (delighted) this.delighted++;
+    // Per-archetype demographics + wait tallies (advanced metrics).
+    const row = this.demoRow(c.arch.id);
+    row.served++;
+    row.revenue += price;
+    row.waitSum += c.waited;
+    if (delighted) row.delighted++;
+    this.recordWait(c.waited);
     // Per-product tallies (drive each product's quality EMA + feedback).
     pr.served++;
     pr.revenue += price;
@@ -586,11 +634,14 @@ export class DaySim {
       this.starHist[stars - 1] = (this.starHist[stars - 1] ?? 0) + 1;
       pr.starSum += stars;
       pr.starCount++;
+      row.starSum += stars;
+      row.starCount++;
     }
 
     const tip = tipAmount(satisfaction, price, c.arch, this.rng.next());
     if (tip > 0) {
       this.tips += tip;
+      row.tips += tip;
       events.push({ type: "tip", amount: tip });
     }
     events.push({ type: "sale", archetype: c.arch.id, price, stars, satisfaction });
@@ -613,6 +664,7 @@ export class DaySim {
   private close(events: SimEvent[]) {
     // Anyone still in line when we close didn't get served.
     this.balked += this.queue.length;
+    for (const c of this.queue) this.demoRow(c.arch.id).lost++;
     this.queue.length = 0;
     this.unsoldCups = this.totalPool(); // brewed but never sold (across products)
     this.over = true;
@@ -727,6 +779,10 @@ export class DaySim {
       prods: this.prods,
       menuIds: this.menuIds,
       primaryId: this.primaryId,
+      demo: this.demo,
+      waitMinSum: this.waitMinSum,
+      waitMaxMin: this.waitMaxMin,
+      waitHist: this.waitHist,
     };
   }
 }
@@ -838,10 +894,9 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
 
   // ---- Regulars pool (loyalty program speeds growth) ----
   const regularsCap = location.baseTraffic * 0.4;
-  let regulars =
-    prev.regularsPool +
-    TUNING.REGULARS_GAIN * d.derived.regularsGainMult * d.delighted -
-    TUNING.REGULARS_DECAY * prev.regularsPool;
+  const regularsGain = TUNING.REGULARS_GAIN * d.derived.regularsGainMult * d.delighted;
+  const regularsDecay = TUNING.REGULARS_DECAY * prev.regularsPool;
+  let regulars = prev.regularsPool + regularsGain - regularsDecay;
   regulars = clamp(regulars, 0, regularsCap);
 
   // ---- Spoilage (mutates the working inventory copy) ----
@@ -933,6 +988,7 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
       buzz: 0.4 * newGF.buzz + 0.6 * newLF.buzz,
     },
     regularsEnd: regulars,
+    metrics: buildMetrics(d, regulars, prev.regularsPool, regularsGain, regularsDecay),
     newGoals: [],
     newAchievements: [],
   };
@@ -944,9 +1000,27 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
   // Supplier prices drift overnight (one gaussian draw per item, fixed order).
   const supplier = stepSupplierPrices(prev.supplier, rng);
 
+  // Staff earn flat XP for the day worked (deterministic — no RNG); re-level.
+  const nextStaff = prev.staff.map((s) => {
+    const xp = s.xp + TUNING.STAFF_XP_PER_DAY;
+    return { ...s, xp, level: levelForXp(xp) };
+  });
+
+  // Research: tick the in-progress node; complete it when its days run out.
+  let research = prev.research;
+  if (research?.inProgress) {
+    const daysLeft = research.inProgress.daysLeft - 1;
+    research =
+      daysLeft <= 0
+        ? { completed: [...research.completed, research.inProgress.id], inProgress: null }
+        : { ...research, inProgress: { ...research.inProgress, daysLeft } };
+  }
+
   const next: GameState = {
     ...prev,
     rngState: rng.state,
+    staff: nextStaff,
+    research,
     day: prev.day + 1,
     cash,
     debt,
@@ -984,6 +1058,53 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
   result.newAchievements = unlockedAchievementIds.filter((id) => !prev.unlockedAchievementIds.includes(id));
 
   return { state: next, result };
+}
+
+/** Build the rich per-day metrics (demographics / wait / recipe prefs / loyalty). */
+function buildMetrics(
+  d: ReturnType<DaySim["_data"]>,
+  regularsEnd: number,
+  prevRegulars: number,
+  regularsGain: number,
+  regularsDecay: number,
+): DayMetrics {
+  // Demographics: copy rows that actually saw traffic.
+  const demographics: DayMetrics["demographics"] = {};
+  for (const [id, row] of Object.entries(d.demo) as [ArchetypeId, DemographicsRow][]) {
+    if (row && row.arrived > 0) demographics[id] = { ...row };
+  }
+
+  // Per-product taste-drift + price signal this day.
+  const recipePrefs: DayMetrics["recipePrefs"] = {};
+  for (const id of d.menuIds) {
+    const pr = d.prods[id];
+    if (!pr || pr.served <= 0) continue;
+    const ratio = pr.price / (pr.tolerance || 1);
+    recipePrefs[id] = {
+      lemon: pr.fbL / pr.served,
+      sugar: pr.fbS / pr.served,
+      ice: pr.fbI / pr.served,
+      price: clamp((0.9 - ratio) * 1.8, -1, 1),
+    };
+  }
+
+  return {
+    demographics,
+    wait: {
+      avgMin: d.served > 0 ? d.waitMinSum / d.served : 0,
+      maxMin: d.waitMaxMin,
+      histogram: [...d.waitHist],
+    },
+    recipePrefs,
+    loyalty: {
+      delighted: d.delighted,
+      conversionRate: d.served > 0 ? d.delighted / d.served : 0,
+      regularsGain,
+      regularsDecay,
+      regularsNet: regularsEnd - prevRegulars,
+      regularsEnd,
+    },
+  };
 }
 
 /** Build the per-product sales breakdown for the recap from the day's run state. */

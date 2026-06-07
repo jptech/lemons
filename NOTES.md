@@ -310,3 +310,46 @@ Tagged by effort. Pulled from the theme review; trim/expand as we go.
     instead of `money()`'s mixed "$80.00 / $260"; equipment/maxed action pills get
     a shared `min-width` so their edges line up down the column; Marketing options
     tightened (less padding) since it's a quick 4-way pick.
+
+- **Advanced metrics & reporting** (demographics / waits / recipe prefs /
+  loyalty conversion). The day sim already knew each customer's archetype,
+  minutes waited, chosen drink, satisfaction, and tip but `settle()` collapsed it
+  to business-wide totals; we now **capture** it (pure counting in the existing
+  code paths — **no new RNG draws**, so a given plan still replays byte-identical)
+  into an optional `DayResult.metrics` (`DayMetrics`): per-archetype
+  `DemographicsRow` (arrived/served/lost/revenue/tips/stars/wait/delighted, stars
+  reuse the existing review sample), a served-customer wait histogram
+  (`WAIT_BUCKETS_MIN`), per-product taste-drift + price signal, and a loyalty
+  block (delighted, conversion rate, regulars gain/decay/net/end). Optional field
+  on append-only `history` ⇒ **no migration** (old days lack it; UI guards `?.`).
+  UI — **Recap**: "Who came by today" (served-by-type bar + per-segment
+  served/lost/★/wait table), "Waits & loyalty" (avg/max wait, delighted %,
+  regulars ±net, wait histogram, plain read "✨ N% left delighted — minting ~X
+  regulars/day"), "Recipe preferences" chips. **Analytics**: "Customer insights"
+  (customer-mix donut + satisfaction-by-segment bars) and "Waits & loyalty" (avg
+  wait, regulars pool, delighted-conversion trend lines). Tests in
+  `test/metricsResearch.test.ts`.
+
+## Depth Phase 2 (see DEPTH_ROADMAP.md)
+
+- **Step C — research tree & staff training/XP** (schema 7→8). A new `research`
+  progression that costs cash **and days** (a planning commitment — one node
+  cooks at a time, ticking at settlement): `data/research.ts`
+  (`ResearchNodeDef`/`RESEARCH_NODES`), `GameState.research { completed,
+  inProgress }`, reducers `startResearch`/`researchStatus`. Effects are a small
+  subset that fold into `derive()` (forecastConfidence / regularsGainMult /
+  marketingFloor), stacking on the equivalent equipment lines — so the honest
+  forecast (`forecastSigma`→band + market mood) auto-narrows with no extra
+  plumbing. Nodes can require `prereqs` (e.g. Predictive Pricing needs Demand
+  Analytics). **Staff XP/level**: `Staff` gains `xp`/`level`; staff earn flat
+  `STAFF_XP_PER_DAY` at settlement (deterministic, no RNG) and `trainStaff`
+  buys a chunk of XP for cash; `levelForXp`/`effectiveStaffBonus` fold level into
+  each staffer's serve/batch speed (the fractional work model already credits
+  small gains). UI: a 🔬 Research tab in the Grow panel (status-driven actions:
+  Start `$cost · Nd` / ⏳ in-progress / ✓ done / 🔒 prereq, with an in-progress
+  read line) and staff rows with a `Lv.N` chip, an `.xpbar`, and a Train button.
+  Migration 7→8 backfills `research` + staff `xp`/`level` (neutral). Research/
+  training spend rolls into the equipment P&L line. Tests in
+  `test/metricsResearch.test.ts`; 6/6 balance seeds still survive.
+  (Deferred to later: the `recipePresets` capability / preset UI, and a
+  `bulkDiscountBonus` research lever — both noted but not shipped this round.)

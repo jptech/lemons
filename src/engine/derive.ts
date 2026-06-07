@@ -1,5 +1,6 @@
 import { EQUIPMENT_BY_ID } from "../data/equipment";
-import type { EquipmentDef, GameState, RepFacets } from "./types";
+import { RESEARCH_BY_ID } from "../data/research";
+import type { EquipmentDef, GameState, RepFacets, Staff } from "./types";
 import { TUNING } from "./tuning";
 
 /**
@@ -71,6 +72,16 @@ export function derive(state: GameState): Derived {
     if (fx.regularsGainMult) regularsGainMult *= fx.regularsGainMult;
   }
 
+  // Completed research stacks on the same levers (it's a separate progression
+  // that costs days as well as cash). Folding here keeps the forecast honest.
+  for (const id of state.research?.completed ?? []) {
+    const fx = RESEARCH_BY_ID[id]?.effect;
+    if (!fx) continue;
+    if (fx.forecastConfidence) researchConfidence += fx.forecastConfidence;
+    if (fx.regularsGainMult) regularsGainMult *= fx.regularsGainMult;
+    if (fx.marketingFloor) marketingFloor += fx.marketingFloor;
+  }
+
   return {
     storageCapacity: storage,
     serveSpeedMult: serve,
@@ -84,6 +95,32 @@ export function derive(state: GameState): Derived {
     iceRegenPerMin,
     researchConfidence,
     regularsGainMult,
+  };
+}
+
+/** The level earned by a given cumulative XP (capped at STAFF_MAX_LEVEL). */
+export function levelForXp(xp: number): number {
+  const thresholds = TUNING.STAFF_XP_FOR_LEVEL;
+  let level = 0;
+  for (let i = 1; i < thresholds.length; i++) {
+    if (xp >= thresholds[i]!) level = i;
+  }
+  return Math.min(level, TUNING.STAFF_MAX_LEVEL);
+}
+
+/** XP needed for the next level, or null if already maxed (for UI bars). */
+export function nextLevelXp(level: number): number | null {
+  const thresholds = TUNING.STAFF_XP_FOR_LEVEL;
+  if (level >= TUNING.STAFF_MAX_LEVEL || level + 1 >= thresholds.length) return null;
+  return thresholds[level + 1]!;
+}
+
+/** A staff member's effective speed bonuses including experience (level) gains. */
+export function effectiveStaffBonus(s: Staff): { serve: number; batch: number } {
+  const level = s.level ?? 0;
+  return {
+    serve: s.serveSpeedBonus + level * TUNING.STAFF_LEVEL_SERVE_GAIN,
+    batch: s.batchSpeedBonus + level * TUNING.STAFF_LEVEL_BATCH_GAIN,
   };
 }
 

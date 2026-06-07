@@ -179,6 +179,41 @@ export interface Staff {
   serveSpeedBonus: number;
   batchSpeedBonus: number;
   role: StaffRole;
+  /** Experience earned by working (and training). Drives `level`. */
+  xp: number;
+  /** Derived from xp via TUNING.STAFF_XP_FOR_LEVEL; adds to the speed bonuses. */
+  level: number;
+}
+
+// ---------------------------------------------------------------------------
+// Research tree (long cash + time sink → permanent capability)
+// ---------------------------------------------------------------------------
+/** Permanent capabilities a completed research node grants. A small subset that
+ *  hooks existing levers (all folded in `derive()`), so the forecast stays honest. */
+export interface ResearchEffects {
+  /** Additive forecast-confidence (stacks with the research-equipment line). */
+  forecastConfidence?: number;
+  /** Multiplies regulars-pool growth (stacks with the loyalty-equipment line). */
+  regularsGainMult?: number;
+  /** Additive passive marketing reach. */
+  marketingFloor?: number;
+}
+
+export interface ResearchNodeDef {
+  id: string;
+  name: string;
+  icon: string;
+  cost: number; // cash
+  days: number; // in-game days to complete once started
+  prereqs: string[]; // research ids that must be completed first
+  blurb: string;
+  effect: ResearchEffects;
+}
+
+/** Player's research progress: what's done and what's currently cooking. */
+export interface ResearchState {
+  completed: string[];
+  inProgress: { id: string; daysLeft: number } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +287,45 @@ export interface DayCosts {
   interest: number;
 }
 
+// ---------------------------------------------------------------------------
+// Advanced per-day metrics (demographics / wait / recipe prefs / loyalty)
+// ---------------------------------------------------------------------------
+/** Per-archetype funnel + experience breakdown for a single day. */
+export interface DemographicsRow {
+  arrived: number; // entered the funnel (served + lost)
+  served: number;
+  lost: number; // balked + reneged + left-in-queue-at-close
+  revenue: number;
+  tips: number;
+  starSum: number; // sum of sampled stars (reuses the existing review sample)
+  starCount: number; // how many sampled reviews this archetype left
+  waitSum: number; // total minutes waited, over served customers
+  delighted: number; // sat >= TIP_THRESHOLD (the loyalty-conversion driver)
+}
+
+/** Rich per-day metrics. Optional on DayResult — older saves lack it and the UI
+ *  guards with `?.`, so no migration is needed (history is append-only). */
+export interface DayMetrics {
+  demographics: Partial<Record<ArchetypeId, DemographicsRow>>;
+  /** Wait time over SERVED customers, in minutes. */
+  wait: { avgMin: number; maxMin: number; histogram: number[] };
+  /** Per-product raw taste drift this day (+ = guests wanted MORE) + price signal. */
+  recipePrefs: Partial<Record<ProductId, { lemon: number; sugar: number; ice: number; price: number }>>;
+  /** Regulars / loyalty funnel — how fast & how often we mint regulars. */
+  loyalty: {
+    delighted: number; // delighted customers today
+    conversionRate: number; // delighted / served (0..1)
+    regularsGain: number; // gross pool growth this day
+    regularsDecay: number; // pool shed to churn this day
+    regularsNet: number; // regularsEnd − prev pool (can be negative)
+    regularsEnd: number; // ending pool (mirrors DayResult.regularsEnd)
+  };
+}
+
+/** Wait-time histogram bucket upper edges (minutes). Last bucket is the overflow
+ *  (> the final edge). 6 buckets: ≤1, 2, 3, 4, 5–6, 7+. */
+export const WAIT_BUCKETS_MIN: readonly number[] = [1, 2, 3, 4, 6];
+
 export interface DayResult {
   day: number;
   dayOfWeek: number; // 0 = Sunday
@@ -284,6 +358,8 @@ export interface DayResult {
   /** Effective facets (0.4 global + 0.6 local) at end of day, for trend arrows. */
   repFacetsEnd: RepFacets;
   regularsEnd: number;
+  /** Rich demographics/wait/recipe-pref/loyalty metrics (absent on old saves). */
+  metrics?: DayMetrics;
   newGoals: string[];
   newAchievements: string[];
 }
@@ -317,6 +393,7 @@ export interface GameState {
   supplier: SupplierState; // per-item market price index
   ownedEquipmentIds: string[];
   staff: Staff[];
+  research: ResearchState;
 
   marketingSpend: number; // planned spend for today
   todayStockSpend: number; // cash spent buying stock today (for P&L)

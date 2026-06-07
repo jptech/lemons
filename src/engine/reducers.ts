@@ -1,8 +1,9 @@
 import { EVENT_BY_ID } from "../data/events";
 import { EQUIPMENT, EQUIPMENT_BY_ID } from "../data/equipment";
+import { RESEARCH_BY_ID } from "../data/research";
 import { LOCATION_BY_ID } from "../data/locations";
 import { STAFF_BY_TIER } from "../data/staff";
-import { creditLimit, derive, usedStorage } from "./derive";
+import { creditLimit, derive, levelForXp, usedStorage } from "./derive";
 import { TUNING } from "./tuning";
 import { clamp } from "./economy";
 import { bulkFactor, unitPrice } from "./supplier";
@@ -201,8 +202,64 @@ export function hireStaff(state: GameState, tier: 1 | 2 | 3): GameState {
         serveSpeedBonus: def.serveSpeedBonus,
         batchSpeedBonus: def.batchSpeedBonus,
         role: state.staff.length === 0 ? "MAKE" : "SERVE",
+        xp: 0,
+        level: 0,
       },
     ],
+  };
+}
+
+/** Pay to train a staff member: a chunk of XP, re-leveling immediately. No-op
+ *  when already at max level or unaffordable. */
+export function trainStaff(state: GameState, id: string): GameState {
+  if (TUNING.STAFF_TRAIN_COST > state.cash) return state;
+  let changed = false;
+  const staff = state.staff.map((s) => {
+    if (s.id !== id || s.level >= TUNING.STAFF_MAX_LEVEL) return s;
+    changed = true;
+    const xp = s.xp + TUNING.STAFF_TRAIN_XP;
+    return { ...s, xp, level: levelForXp(xp) };
+  });
+  if (!changed) return state;
+  return {
+    ...state,
+    cash: round2(state.cash - TUNING.STAFF_TRAIN_COST),
+    todayEquipmentSpend: round2(state.todayEquipmentSpend + TUNING.STAFF_TRAIN_COST),
+    staff,
+  };
+}
+
+export type ResearchStatus =
+  | { kind: "done" }
+  | { kind: "inProgress"; daysLeft: number }
+  | { kind: "busy" } // another node is already cooking
+  | { kind: "buyable" }
+  | { kind: "tooExpensive" }
+  | { kind: "locked"; reason: string };
+
+/** Whether a research node can be started right now (and why not). */
+export function researchStatus(state: GameState, id: string): ResearchStatus {
+  const def = RESEARCH_BY_ID[id];
+  if (!def) return { kind: "locked", reason: "unavailable" };
+  const r = state.research ?? { completed: [], inProgress: null };
+  if (r.completed.includes(id)) return { kind: "done" };
+  if (r.inProgress?.id === id) return { kind: "inProgress", daysLeft: r.inProgress.daysLeft };
+  if (r.inProgress) return { kind: "busy" };
+  const missing = def.prereqs.find((p) => !r.completed.includes(p));
+  if (missing) return { kind: "locked", reason: `Needs ${RESEARCH_BY_ID[missing]?.name ?? missing}` };
+  if (def.cost > state.cash) return { kind: "tooExpensive" };
+  return { kind: "buyable" };
+}
+
+/** Begin researching a node (one at a time); completes after `def.days` days. */
+export function startResearch(state: GameState, id: string): GameState {
+  if (researchStatus(state, id).kind !== "buyable") return state;
+  const def = RESEARCH_BY_ID[id]!;
+  return {
+    ...state,
+    cash: round2(state.cash - def.cost),
+    todayEquipmentSpend: round2(state.todayEquipmentSpend + def.cost),
+    research: { ...state.research, inProgress: { id, daysLeft: def.days } },
   };
 }
 

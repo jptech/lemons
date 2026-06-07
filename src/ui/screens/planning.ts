@@ -2,6 +2,7 @@ import { actions, type AppState } from "../../store/gameStore";
 import { getSettings } from "../../store/settings";
 import * as sel from "../../store/selectors";
 import { EQUIPMENT_LINES } from "../../data/equipment";
+import { RESEARCH_NODES } from "../../data/research";
 import { STAFF_TIERS } from "../../data/staff";
 import { MARKETING_TIERS } from "../../data/marketing";
 import { LOCATIONS } from "../../data/locations";
@@ -11,6 +12,7 @@ import { GOALS } from "../../data/goals";
 import {
   activeProducts,
   derive,
+  effectiveStaffBonus,
   equipmentStatus,
   idealRecipe,
   itemBuyPrice,
@@ -18,10 +20,12 @@ import {
   inventoryQty,
   maxBuyable,
   nextBulkTier,
+  nextLevelXp,
   primaryProductId,
   productStateOf,
   productTaste,
   recipeQuality,
+  researchStatus,
   TUNING,
   type GameState,
   type ItemGrade,
@@ -31,7 +35,7 @@ import {
 } from "../../engine";
 import { PRODUCTS, PRODUCT_BY_ID } from "../../data/products";
 import { h, type Child } from "../dom";
-import { button, panel, pill, slider, statBlock } from "../components";
+import { bar, button, panel, pill, slider, statBlock } from "../components";
 import { money, moneyShort, moneyWhole, pct } from "../format";
 
 const STOCK_ROWS: { item: ItemId; icon: string; name: string; note: (g: GameState) => string }[] = [
@@ -539,17 +543,24 @@ function marketingPanel(g: GameState): HTMLElement {
 // ---------------------------------------------------------------------------
 // "Grow" — a tabbed panel grouping the occasional invest actions (equipment,
 // staff, locations) so they don't sprawl across the dashboard.
-type GrowTab = "equipment" | "staff" | "locations";
+type GrowTab = "equipment" | "staff" | "research" | "locations";
 let growTab: GrowTab = "equipment";
 
 function growPanel(g: GameState): HTMLElement {
   const tabs: { id: GrowTab; label: string }[] = [
     { id: "equipment", label: "🛠️ Equipment" },
     { id: "staff", label: "🧑‍🍳 Staff" },
+    { id: "research", label: "🔬 Research" },
     { id: "locations", label: "📍 Locations" },
   ];
   const content =
-    growTab === "equipment" ? equipmentContent(g) : growTab === "staff" ? staffContent(g) : locationContent(g);
+    growTab === "equipment"
+      ? equipmentContent(g)
+      : growTab === "staff"
+        ? staffContent(g)
+        : growTab === "research"
+          ? researchContent(g)
+          : locationContent(g);
   return h("section.panel.grow", {}, [
     h(
       "div.tabbar",
@@ -623,23 +634,53 @@ function staffBenefit(s: { serveSpeedBonus: number; batchSpeedBonus: number }): 
   return parts.join(" · ");
 }
 
+// A hired staffer's perks reflect their trained level (effective bonuses).
+function staffBenefitLeveled(st: GameState["staff"][number]): string {
+  const eff = effectiveStaffBonus(st);
+  const parts = ["+1 station"];
+  if (eff.serve > 0) parts.push(`serves ${Math.round(eff.serve * 100)}% faster`);
+  if (eff.batch > 0) parts.push(`mixes ${Math.round(eff.batch * 100)}% faster`);
+  return parts.join(" · ");
+}
+
+// A small XP/level progress bar for a hired staffer.
+function staffXpBar(st: GameState["staff"][number]): Child {
+  const next = nextLevelXp(st.level);
+  if (next === null) return h("div.small.muted", {}, "✨ Fully trained");
+  const floor = TUNING.STAFF_XP_FOR_LEVEL[st.level] ?? 0;
+  const frac = (st.xp - floor) / (next - floor);
+  return h("div.xpbar", {}, [
+    bar(frac, "var(--c-grape, #9775fa)"),
+    h("span.small.muted", {}, `Lv.${st.level} · ${Math.round(st.xp)}/${next} XP`),
+  ]);
+}
+
 // ---------------------------------------------------------------------------
 function staffContent(g: GameState): Child[] {
   const full = g.staff.length >= TUNING.STAFF_CAP;
+  const canAffordTrain = g.cash >= TUNING.STAFF_TRAIN_COST;
   return [
-    h("p.muted.small", {}, `${g.staff.length}/${TUNING.STAFF_CAP} hired. Each adds a serving station. Pricier staff work faster — worth it once your stations are full.`),
+    h("p.muted.small", {}, `${g.staff.length}/${TUNING.STAFF_CAP} hired. Each adds a serving station. Crew gains experience daily — train them to level up faster.`),
     ...g.staff.map((st) =>
       h("div.shop__row", {}, [
         h("div.shop__icon", {}, st.icon),
         h("div.shop__info", {}, [
-          h("strong", {}, [st.name, h("span.lvl", {}, `${moneyWhole(st.wage)}/day`)]),
-          h("div.small.muted", {}, staffBenefit(st)),
+          h("strong", {}, [st.name, h("span.lvl", {}, `Lv.${st.level}`), h("span.lvl", {}, `${moneyWhole(st.wage)}/day`)]),
+          h("div.small.muted", {}, staffBenefitLeveled(st)),
+          staffXpBar(st),
         ]),
         h("div.shop__action.shop__action--group", {}, [
           button(st.role === "MAKE" ? "🫙 Mixing" : "🥤 Serving", () => actions.setStaffRole(st.id, st.role === "MAKE" ? "SERVE" : "MAKE"), {
             size: "sm",
             variant: "ghost",
           }),
+          st.level < TUNING.STAFF_MAX_LEVEL
+            ? button(`Train ${moneyWhole(TUNING.STAFF_TRAIN_COST)}`, () => actions.trainStaff(st.id), {
+                size: "sm",
+                variant: "sky",
+                disabled: !canAffordTrain,
+              })
+            : null,
           button("Let go", () => actions.fireStaff(st.id), { size: "sm", variant: "ghost" }),
         ]),
       ]),
@@ -663,6 +704,51 @@ function staffContent(g: GameState): Child[] {
             ]),
           ),
         ),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+function researchContent(g: GameState): Child[] {
+  const inProg = g.research?.inProgress ?? null;
+  return [
+    h("p.muted.small", {}, "Invest cash and days into permanent upgrades. One project at a time — progress ticks each day you open."),
+    inProg
+      ? h("p.feedback", {}, `🔬 Researching ${RESEARCH_NODES.find((n) => n.id === inProg.id)?.name ?? inProg.id} — ${inProg.daysLeft} day${inProg.daysLeft === 1 ? "" : "s"} left.`)
+      : null,
+    h(
+      "div.shop",
+      {},
+      RESEARCH_NODES.map((node) => {
+        const st = researchStatus(g, node.id);
+        let action: Child;
+        let rowClass = "";
+        let lockText: string | null = null;
+        if (st.kind === "done") {
+          action = pill("✓ done");
+          rowClass = "shop__row--owned";
+        } else if (st.kind === "inProgress") {
+          action = pill(`⏳ ${st.daysLeft}d`);
+        } else if (st.kind === "buyable" || st.kind === "tooExpensive") {
+          action = button(`${moneyWhole(node.cost)} · ${node.days}d`, () => actions.startResearch(node.id), {
+            size: "sm",
+            disabled: st.kind === "tooExpensive",
+          });
+        } else {
+          action = h("span.pill.pill--locked", {}, "🔒");
+          rowClass = "shop__row--locked";
+          lockText = st.kind === "locked" ? st.reason : "Finish current research first";
+        }
+        return h("div.shop__row", { class: rowClass }, [
+          h("div.shop__icon", {}, node.icon),
+          h("div.shop__info", {}, [
+            h("strong", {}, node.name),
+            h("div.small.muted", {}, node.blurb),
+            lockText ? h("div.shop__lock", {}, `🔒 ${lockText}`) : null,
+          ]),
+          h("div.shop__action", {}, action),
+        ]);
+      }),
+    ),
   ];
 }
 

@@ -21,6 +21,9 @@ export {
   hireStaff,
   fireStaff,
   setStaffRole,
+  trainStaff,
+  startResearch,
+  researchStatus,
   setMarketing,
   moveLocation,
   unlockLocation,
@@ -39,8 +42,11 @@ export {
   blendRep,
   uniformFacets,
   effectiveFacets,
+  levelForXp,
+  nextLevelXp,
+  effectiveStaffBonus,
 } from "./derive";
-export type { EquipmentStatus } from "./reducers";
+export type { EquipmentStatus, ResearchStatus } from "./reducers";
 
 export {
   expectedCustomers,

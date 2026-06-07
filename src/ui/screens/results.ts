@@ -6,12 +6,34 @@ import { GOAL_BY_ID } from "../../data/goals";
 import { ACHIEVEMENT_BY_ID } from "../../data/achievements";
 import { GOALS } from "../../data/goals";
 import { PRODUCT_BY_ID } from "../../data/products";
-import type { DayResult, GameState } from "../../engine";
+import { ARCHETYPE_BY_ID } from "../../data/archetypes";
+import { WAIT_BUCKETS_MIN } from "../../engine";
+import type { ArchetypeId, DayMetrics, DayResult, GameState } from "../../engine";
 import { h, type Child } from "../dom";
 import { button, panel, pill, statBlock, statCard } from "../components";
 import { barChart, donut, lineChart, CHART_COLORS as C } from "../charts/charts";
 import { confettiBurst } from "../confetti";
 import { money, pct, signed, stars } from "../format";
+
+/** Brand colors per customer archetype (shared with the analytics screen feel). */
+export const ARCHETYPE_COLOR: Record<ArchetypeId, string> = {
+  kid: C.coral,
+  adult: C.sky,
+  tourist: C.grape,
+  regular: C.sun,
+  healthnut: C.mint,
+};
+
+/** Human labels for the wait-time histogram buckets (≤1, 2, …, last is overflow). */
+export function waitBucketLabels(): string[] {
+  const labels = WAIT_BUCKETS_MIN.map((edge, i) => {
+    const prev = i === 0 ? 0 : WAIT_BUCKETS_MIN[i - 1]!;
+    return edge - prev <= 1 ? `${edge}` : `${prev + 1}–${edge}`;
+  });
+  labels[0] = `≤${WAIT_BUCKETS_MIN[0]}`;
+  labels.push(`${WAIT_BUCKETS_MIN[WAIT_BUCKETS_MIN.length - 1]! + 1}+`);
+  return labels;
+}
 
 let lastCelebratedDay = -1;
 
@@ -42,6 +64,9 @@ export function renderResults(s: AppState): HTMLElement {
       costDonut(r),
     ]),
     reviewsPanel(r),
+    r.metrics ? demographicsPanel(r.metrics) : null,
+    r.metrics ? waitLoyaltyPanel(r, r.metrics) : null,
+    r.metrics ? recipePrefPanel(r.metrics) : null,
     wasteSection(r),
     footer(r, g, campaignDone),
   ]);
@@ -227,6 +252,122 @@ function reviewsPanel(r: DayResult): HTMLElement {
       barChart(drivers, { title: "What built your reputation", yFormat: (n) => `${Math.round(n)}%`, height: 200 }),
     ]),
     feedbackLine(r),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Advanced metrics panels (demographics / wait / loyalty / recipe prefs)
+// ---------------------------------------------------------------------------
+/** Who showed up today, who you served, and how each segment felt. */
+function demographicsPanel(m: DayMetrics): Child {
+  const entries = (Object.entries(m.demographics) as [ArchetypeId, NonNullable<DayMetrics["demographics"][ArchetypeId]>][])
+    .filter(([, row]) => row.arrived > 0)
+    .sort((a, b) => b[1].served - a[1].served);
+  if (!entries.length) return null;
+
+  const bars = entries.map(([id, row]) => {
+    const a = ARCHETYPE_BY_ID[id];
+    return {
+      label: a?.icon ?? "🙂",
+      value: row.served,
+      color: ARCHETYPE_COLOR[id],
+      tip: `${a?.icon ?? ""} ${a?.name ?? id}<br><strong>${row.served}</strong> served · ${row.lost} lost`,
+    };
+  });
+
+  const headerRow = h("div.prodtable__row.prodtable__row--head", {}, [
+    h("span", {}, "Who"),
+    h("span.num", {}, "Served"),
+    h("span.num", {}, "Lost"),
+    h("span.num", {}, "Avg ★"),
+    h("span.num", {}, "Wait"),
+  ]);
+  const rows = entries.map(([id, row]) => {
+    const a = ARCHETYPE_BY_ID[id];
+    const avgStars = row.starCount > 0 ? `${(row.starSum / row.starCount).toFixed(1)}★` : "—";
+    const avgWait = row.served > 0 ? `${(row.waitSum / row.served).toFixed(1)}m` : "—";
+    return h("div.prodtable__row", {}, [
+      h("span.prodtable__name", {}, `${a?.icon ?? "🙂"} ${a?.name ?? id}`),
+      h("span.num", {}, String(row.served)),
+      h("span.num", { class: row.lost > 0 ? "neg" : "" }, String(row.lost)),
+      h("span.num", {}, avgStars),
+      h("span.num", {}, avgWait),
+    ]);
+  });
+
+  return panel(
+    "👥",
+    "Who came by today",
+    barChart(bars, { title: "Customers served by type", yFormat: (n) => String(Math.round(n)), height: 180 }),
+    h("div.prodtable", {}, [headerRow, ...rows]),
+    h("p.muted.small", {}, "“Lost” = walked off without buying (long line or sold out). Stars are from sampled reviews."),
+  );
+}
+
+/** Wait times + the regulars-conversion funnel ("how fast/often we mint regulars"). */
+function waitLoyaltyPanel(r: DayResult, m: DayMetrics): Child {
+  if (r.served === 0) return null;
+  const labels = waitBucketLabels();
+  const waitBars = m.wait.histogram.map((count, i) => ({
+    label: labels[i] ?? "?",
+    value: count,
+    color: i < 3 ? C.mint : i < 5 ? C.sun : C.coral,
+    tip: `${labels[i]} min wait: <strong>${count}</strong> guests`,
+  }));
+
+  const net = m.loyalty.regularsNet;
+  const netText = `${net >= 0 ? "+" : "−"}${Math.abs(net).toFixed(1)}`;
+  const conv = m.loyalty.conversionRate;
+  let read = `✨ ${pct(conv)} of guests left delighted`;
+  if (net > 0.5) read += ` — minting about ${net.toFixed(1)} regulars/day.`;
+  else if (net < -0.5) read += ` — but regulars are slipping (${netText} today). Win back the delight.`;
+  else read += ` — your regulars pool is holding steady.`;
+
+  return panel(
+    "💛",
+    "Waits & loyalty",
+    h("div.grid.grid--stats", {}, [
+      statBlock("Avg wait", `${m.wait.avgMin.toFixed(1)}m`, "served guests"),
+      statBlock("Longest wait", `${m.wait.maxMin}m`, "one guest"),
+      statBlock("Delighted", String(m.loyalty.delighted), `${pct(conv)} of served`),
+      statBlock("Regulars", `${Math.round(m.loyalty.regularsEnd)}`, `${netText} today`),
+    ]),
+    barChart(waitBars, { title: "How long guests waited (minutes)", yFormat: (n) => String(Math.round(n)), height: 180 }),
+    h("p.feedback", {}, read),
+  );
+}
+
+/** What today's guests wished was different about each recipe. */
+function recipePrefPanel(m: DayMetrics): Child {
+  const TH = 0.025; // ignore tiny drift
+  const entries = Object.entries(m.recipePrefs) as [string, NonNullable<DayMetrics["recipePrefs"][keyof DayMetrics["recipePrefs"]]>][];
+  const lines = entries
+    .map(([id, p]) => {
+      const def = PRODUCT_BY_ID[id];
+      const chips: Child[] = [];
+      const add = (label: string, v: number) => {
+        if (v > TH) chips.push(pill(`▲ more ${label}`) as Child);
+        else if (v < -TH) chips.push(pill(`▼ less ${label}`) as Child);
+      };
+      add("🍋 lemon", p.lemon);
+      add("🍬 sugar", p.sugar);
+      add("🧊 ice", p.ice);
+      if (p.price > 0.25) chips.push(pill("💵 room to charge more") as Child);
+      else if (p.price < -0.25) chips.push(pill("💵 felt pricey") as Child);
+      if (!chips.length) return null;
+      return h("div.row", { style: { flexWrap: "wrap", gap: "6px", alignItems: "center" } }, [
+        h("strong", {}, `${def?.icon ?? "🥤"} ${def?.name ?? id}:`),
+        ...chips,
+      ]);
+    })
+    .filter(Boolean) as Child[];
+  if (!lines.length) return null;
+
+  return panel(
+    "🧪",
+    "Recipe preferences",
+    h("div.col", { style: { gap: "8px" } }, lines),
+    h("p.muted.small", {}, "Today's guests leaned this way. The recipe panel's feedback chips smooth these signals over several days."),
   );
 }
 

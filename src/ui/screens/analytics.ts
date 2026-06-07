@@ -3,11 +3,13 @@ import { actions, type AppState } from "../../store/gameStore";
 import { WEATHER_ICON, WEATHER_LABEL } from "../../data/weather";
 import { GOALS } from "../../data/goals";
 import { ACHIEVEMENTS } from "../../data/achievements";
-import type { Condition, DayResult, GameState } from "../../engine";
+import { ARCHETYPE_BY_ID } from "../../data/archetypes";
+import type { ArchetypeId, Condition, DayResult, GameState } from "../../engine";
 import { h, type Child } from "../dom";
 import { button, panel, statBlock } from "../components";
-import { barChart, lineChart, CHART_COLORS as C } from "../charts/charts";
-import { money, signed, stars } from "../format";
+import { barChart, donut, lineChart, CHART_COLORS as C } from "../charts/charts";
+import { money, pct, signed, stars } from "../format";
+import { ARCHETYPE_COLOR } from "./results";
 
 const WX_COLOR: Record<Condition, string> = {
   heatwave: "#ff8787",
@@ -36,8 +38,75 @@ export function renderAnalytics(s: AppState): HTMLElement {
           weatherSalesChart(recent),
           repChart(recent),
         ]),
+    recent.some((d) => d.metrics) ? customerInsights(recent) : null,
     g.mode === "campaign" ? goalsPanel(g) : null,
     achievementsPanel(g),
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Customer insights — demographics, satisfaction by segment, waits, loyalty.
+// ---------------------------------------------------------------------------
+function customerInsights(recent: DayResult[]): HTMLElement {
+  // Aggregate per-archetype served + sampled stars across the recent window.
+  const agg: Partial<Record<ArchetypeId, { served: number; starSum: number; starCount: number }>> = {};
+  for (const d of recent) {
+    const demo = d.metrics?.demographics;
+    if (!demo) continue;
+    for (const [id, row] of Object.entries(demo) as [ArchetypeId, NonNullable<typeof demo[ArchetypeId]>][]) {
+      const a = (agg[id] ??= { served: 0, starSum: 0, starCount: 0 });
+      a.served += row.served;
+      a.starSum += row.starSum;
+      a.starCount += row.starCount;
+    }
+  }
+  const ids = (Object.keys(agg) as ArchetypeId[]).sort((x, y) => agg[y]!.served - agg[x]!.served);
+
+  const mixSegs = ids
+    .filter((id) => agg[id]!.served > 0)
+    .map((id) => ({ label: ARCHETYPE_BY_ID[id]?.name ?? id, value: agg[id]!.served, color: ARCHETYPE_COLOR[id] }));
+  const totalServed = mixSegs.reduce((s, x) => s + x.value, 0);
+
+  const satBars = ids
+    .filter((id) => agg[id]!.starCount > 0)
+    .map((id) => {
+      const avg = agg[id]!.starSum / agg[id]!.starCount;
+      return {
+        label: ARCHETYPE_BY_ID[id]?.icon ?? "🙂",
+        value: Math.round(avg * 10) / 10,
+        color: ARCHETYPE_COLOR[id],
+        tip: `${ARCHETYPE_BY_ID[id]?.name ?? id}<br><strong>${avg.toFixed(1)}★</strong> avg (${agg[id]!.starCount} reviews)`,
+      };
+    });
+
+  const waitLine = recent
+    .filter((d) => d.metrics)
+    .map((d) => ({ x: d.day, y: d.metrics!.wait.avgMin, label: `Day ${d.day}<br><strong>${d.metrics!.wait.avgMin.toFixed(1)} min</strong> avg wait` }));
+
+  const regularsLine = recent.map((d) => ({ x: d.day, y: d.regularsEnd, label: `Day ${d.day}<br><strong>${Math.round(d.regularsEnd)}</strong> regulars` }));
+
+  const convLine = recent
+    .filter((d) => d.metrics)
+    .map((d) => ({ x: d.day, y: Math.round(d.metrics!.loyalty.conversionRate * 100), label: `Day ${d.day}<br><strong>${pct(d.metrics!.loyalty.conversionRate)}</strong> left delighted` }));
+
+  return h("div.col", { style: { gap: "16px" } }, [
+    panel(
+      "👥",
+      "Customer insights",
+      h("div.grid.grid--charts", {}, [
+        donut(mixSegs, { title: "🧑‍🤝‍🧑 Customer mix", centerValue: String(totalServed), centerLabel: "served" }),
+        barChart(satBars, { title: "⭐ Satisfaction by segment", yFormat: (n) => `${n.toFixed(1)}` }),
+      ]),
+    ),
+    panel(
+      "💛",
+      "Waits & loyalty",
+      h("div.grid.grid--charts", {}, [
+        lineChart(waitLine, { title: "⏱️ Avg wait over time", color: C.sky, yFormat: (n) => `${n.toFixed(1)}m` }),
+        lineChart(regularsLine, { title: "💛 Regulars pool", color: C.sun, yFormat: (n) => String(Math.round(n)) }),
+        lineChart(convLine, { title: "✨ Delighted conversion", color: C.mint, yFormat: (n) => `${Math.round(n)}%` }),
+      ]),
+    ),
   ]);
 }
 

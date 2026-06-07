@@ -849,6 +849,20 @@
   border-radius: var(--radius-pill);
   padding: 1px 9px;
 }
+/* Staff experience bar (training / level progress) */
+.xpbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.xpbar .meter {
+  flex: 1;
+  height: 7px;
+}
+.xpbar .small {
+  white-space: nowrap;
+}
 .shop__row--locked {
   opacity: 0.9;
 }
