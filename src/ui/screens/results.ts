@@ -47,10 +47,11 @@ export function renderResults(s: AppState): HTMLElement {
 
   const campaignDone = g.mode === "campaign" && g.completedGoalIds.length >= GOALS.length;
 
-  // Celebrate new goals/achievements once per day.
+  // Celebrate new goals/achievements once per day — after the stat cards and
+  // reward pills have landed (confetti self-gates on reduced motion).
   if ((r.newGoals.length || r.newAchievements.length) && r.day !== lastCelebratedDay) {
     lastCelebratedDay = r.day;
-    requestAnimationFrame(() => confettiBurst(campaignDone ? 160 : 90));
+    setTimeout(() => confettiBurst(campaignDone ? 160 : 90), 700);
   }
 
   return h("main.screen.results", {}, [
@@ -99,10 +100,16 @@ function wasteSection(r: DayResult): HTMLElement {
 
 function rewardsBanner(r: DayResult): Child {
   if (!r.newGoals.length && !r.newAchievements.length) return null;
-  return h("div.rewards", {}, [
-    ...r.newGoals.map((id) => pill(`🎯 Goal: ${GOAL_BY_ID[id]?.title ?? id}`) as Child),
-    ...r.newAchievements.map((id) => pill(`${ACHIEVEMENT_BY_ID[id]?.icon ?? "🏆"} ${ACHIEVEMENT_BY_ID[id]?.title ?? id}`) as Child),
-  ]);
+  const labels = [
+    ...r.newGoals.map((id) => `🎯 Goal: ${GOAL_BY_ID[id]?.title ?? id}`),
+    ...r.newAchievements.map((id) => `${ACHIEVEMENT_BY_ID[id]?.icon ?? "🏆"} ${ACHIEVEMENT_BY_ID[id]?.title ?? id}`),
+  ];
+  // Pills cascade in after the stat cards (pop-in keyframe + backwards fill).
+  return h("div.rewards", {}, labels.map((text, i) => {
+    const p = pill(text);
+    p.style.animationDelay = `${420 + i * 90}ms`;
+    return p as Child;
+  }));
 }
 
 function campaignBanner(): HTMLElement {
@@ -110,15 +117,30 @@ function campaignBanner(): HTMLElement {
 }
 
 // ---------------------------------------------------------------------------
+/** One-line story of the day — the first thing the player should read. */
+function dayVerdict(r: DayResult, g: GameState): { text: string; tone: "pos" | "neg" | "neutral" } {
+  if (g.gameOver) return { text: "The stand ran out of cash and credit. 💔", tone: "neg" };
+  if (r.served === 0) return { text: "Nobody got served — stock up and try again! 🧺", tone: "neg" };
+  const bestBefore = g.stats.bestDayProfit; // already includes today; compare loosely
+  if (r.profit > 0 && r.profit >= bestBefore) return { text: "Best day yet — the stand is buzzing! 🏆", tone: "pos" };
+  if (r.profit > 50) return { text: "A fantastic day at the stand! 🎉", tone: "pos" };
+  if (r.profit > 10) return { text: "A solid, profitable day. 👍", tone: "pos" };
+  if (r.profit > -10) return { text: "Just about broke even — small tweaks add up.", tone: "neutral" };
+  if (r.balked + r.reneged > r.served) return { text: "Long lines cost you — speed up service. 🐢", tone: "neg" };
+  return { text: "A rough day — tomorrow is a fresh squeeze. 🍋", tone: "neg" };
+}
+
 function recapHeader(r: DayResult, g: GameState): HTMLElement {
   const ev = r.eventId ? EVENT_BY_ID[r.eventId] : undefined;
   const missed = r.weather.forecast.condition !== r.weather.condition;
-  return h("header.recap-head", {}, [
+  const verdict = dayVerdict(r, g);
+  return h(`header.recap-head.recap-head--${verdict.tone}`, {}, [
     h("div.recap-head__title", {}, [
       h("span.recap-head__wx", {}, WEATHER_ICON[r.weather.condition]),
       h("div", {}, [
         h("h1", {}, g.gameOver ? "Game Over" : `Day ${r.day} Recap`),
-        h("span.muted", {}, [
+        h(`div.recap-head__verdict.recap-head__verdict--${verdict.tone}`, {}, verdict.text),
+        h("span.muted.small", {}, [
           `${WEATHER_LABEL[r.weather.condition]} · ${r.weather.tempF}°F`,
           missed ? h("span.neg", {}, `  (forecast missed — said ${WEATHER_LABEL[r.weather.forecast.condition]})`) : null,
         ]),
@@ -129,8 +151,23 @@ function recapHeader(r: DayResult, g: GameState): HTMLElement {
 }
 
 // A value element that counts up from zero on screen enter (final text preset).
-function cu(n: number, kind: "int" | "money" | "signed", text: string): Child {
-  return h("span", { "data-countup": String(n), "data-countup-fmt": kind }, text);
+// `delay` sequences the count-ups; `punch` adds a scale-pop when it finishes.
+function cu(
+  n: number,
+  kind: "int" | "money" | "signed",
+  text: string,
+  opts: { delay?: number; punch?: boolean } = {},
+): Child {
+  return h(
+    "span",
+    {
+      "data-countup": String(n),
+      "data-countup-fmt": kind,
+      "data-countup-delay": opts.delay ? String(opts.delay) : null,
+      "data-punch": opts.punch ? "" : null,
+    },
+    text,
+  );
 }
 
 function repTier(rep: number): string {
@@ -146,17 +183,18 @@ function statRow(r: DayResult, prev: DayResult | null, recent: DayResult[]): HTM
     statCard({
       icon: "💰",
       label: "Profit",
-      value: cu(r.profit, "signed", signed(r.profit)),
+      value: cu(r.profit, "signed", signed(r.profit), { punch: true }),
       delta: prev ? r.profit - prev.profit : undefined,
       deltaText: prev ? money(Math.abs(r.profit - prev.profit)) : undefined,
       spark: recent.map((d) => d.profit),
       sparkColor: C.mint,
       sub: `cash ${money(r.cashEnd)}`,
+      hero: true,
     }),
     statCard({
       icon: "🥤",
       label: "Cups",
-      value: cu(r.cupsSold, "int", String(r.cupsSold)),
+      value: cu(r.cupsSold, "int", String(r.cupsSold), { delay: 80 }),
       delta: prev ? r.cupsSold - prev.cupsSold : undefined,
       spark: recent.map((d) => d.cupsSold),
       sparkColor: C.sky,
@@ -175,7 +213,7 @@ function statRow(r: DayResult, prev: DayResult | null, recent: DayResult[]): HTM
     statCard({
       icon: "🪙",
       label: "Tips",
-      value: cu(r.tips, "money", money(r.tips)),
+      value: cu(r.tips, "money", money(r.tips), { delay: 240 }),
       delta: prev ? Math.round((r.tips - prev.tips) * 100) / 100 : undefined,
       deltaText: prev ? money(Math.abs(r.tips - prev.tips)) : undefined,
       spark: recent.map((d) => d.tips),
@@ -185,7 +223,7 @@ function statRow(r: DayResult, prev: DayResult | null, recent: DayResult[]): HTM
     statCard({
       icon: "📣",
       label: "Reputation",
-      value: cu(rep, "int", String(rep)),
+      value: cu(rep, "int", String(rep), { delay: 320 }),
       delta: prev ? Math.round(r.reputationEnd - prev.reputationEnd) : undefined,
       spark: recent.map((d) => d.reputationEnd),
       sparkColor: C.coral,
@@ -194,7 +232,7 @@ function statRow(r: DayResult, prev: DayResult | null, recent: DayResult[]): HTM
     statCard({
       icon: "💨",
       label: "Lost",
-      value: cu(lost, "int", String(lost)),
+      value: cu(lost, "int", String(lost), { delay: 400 }),
       upIsGood: false,
       delta: prev ? lost - (prev.balked + prev.reneged) : undefined,
       spark: recent.map((d) => d.balked + d.reneged),
@@ -437,10 +475,19 @@ function footer(r: DayResult, g: GameState, campaignDone: boolean): HTMLElement 
       ]),
     ]);
   }
+  // After commitDay the game state is already tomorrow — tease its forecast so
+  // the player walks into planning with a head start.
+  const f = g.weatherToday.forecast;
   return h("div.results__footer", {}, [
-    r.spoiled.ice + r.spoiled.lemons > 0
-      ? h("span.muted", {}, `🧊 ${r.spoiled.ice} ice melted${r.spoiled.lemons ? ` · 🍋 ${r.spoiled.lemons} lemons spoiled` : ""}`)
-      : h("span", {}),
+    h("div.col", { style: { gap: "2px" } }, [
+      h("span.results__tomorrow", {}, [
+        "Tomorrow: ",
+        h("strong", {}, `${WEATHER_ICON[f.condition]} ${WEATHER_LABEL[f.condition]} · ~${f.tempF}°F`),
+      ]),
+      r.spoiled.ice + r.spoiled.lemons > 0
+        ? h("span.muted.small", {}, `🧊 ${r.spoiled.ice} ice melted${r.spoiled.lemons ? ` · 🍋 ${r.spoiled.lemons} lemons spoiled` : ""}`)
+        : null,
+    ]),
     h("div.row", {}, [
       button("📊 Stats", () => actions.goTo("analytics"), { variant: "ghost", size: "lg" }),
       campaignDone

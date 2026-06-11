@@ -10,11 +10,22 @@ export function renderMenu(s: AppState): HTMLElement {
   const canContinue = hasSave() && s.game.day > 1;
   const g = s.game;
 
+  // Title letters pop in one by one (pure CSS; instant under reduced motion).
+  const titleLetters = [...BRAND.name].map((ch, i) =>
+    h("span.menu__letter", { style: `animation-delay: ${i * 40}ms` }, ch === " " ? " " : ch),
+  );
+
   return h("main.screen.menu", {}, [
     h("div.menu__hero", {}, [
+      h("div.menu__rays", {}),
       h("div.menu__logo", {}, BRAND.mascot),
-      h("h1.menu__title", {}, BRAND.name),
+      h("h1.menu__title", {}, titleLetters),
       h("p.menu__tag", {}, BRAND.tagline),
+    ]),
+    h("div.menu__street", {}, [
+      h("span.menu__stroller.menu__stroller--a", {}, "🚶"),
+      h("span.menu__stroller.menu__stroller--b", {}, "🧒"),
+      h("span.menu__stroller.menu__stroller--c", {}, "🐕"),
     ]),
     h("div.menu__cards", {}, [
       canContinue

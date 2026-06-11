@@ -6,10 +6,11 @@ import { ACHIEVEMENTS } from "../../data/achievements";
 import { ARCHETYPE_BY_ID } from "../../data/archetypes";
 import type { ArchetypeId, Condition, DayResult, GameState } from "../../engine";
 import { h, type Child } from "../dom";
-import { button, panel, statBlock } from "../components";
+import { bar, button, panel, statBlock } from "../components";
 import { barChart, donut, lineChart, CHART_COLORS as C } from "../charts/charts";
 import { money, pct, signed, stars } from "../format";
 import { ARCHETYPE_COLOR } from "./results";
+import { LOCATION_BY_ID } from "../../data/locations";
 
 const WX_COLOR: Record<Condition, string> = {
   heatwave: "#ff8787",
@@ -24,17 +25,29 @@ export function renderAnalytics(s: AppState): HTMLElement {
   const g = s.game;
   const recent = g.history.slice(-14);
 
+  const loc = LOCATION_BY_ID[g.currentLocationId];
   return h("main.screen.analytics", {}, [
     h("header.recap-head", {}, [
-      h("div.recap-head__title", {}, [h("span.recap-head__wx", {}, "📊"), h("h1", {}, "Stand Analytics")]),
+      h("div.recap-head__title", {}, [
+        h("span.recap-head__wx", {}, "📊"),
+        h("div", {}, [
+          h("h1", {}, "Stand Analytics"),
+          h("span.muted.small", {}, [
+            `Day ${g.day} · ${loc ? `${loc.icon} ${loc.name}` : ""} · ${g.mode === "campaign" ? "Campaign" : "Sandbox"}`,
+            g.history.length ? ` · charts cover the last ${recent.length} day${recent.length === 1 ? "" : "s"}` : "",
+          ]),
+        ]),
+      ]),
       button("← Back", () => actions.goTo(g.history.length ? "planning" : "menu"), { variant: "ghost", size: "sm" }),
     ]),
     lifetimePanel(g),
     g.history.length === 0
       ? h("p.muted", { style: { textAlign: "center", padding: "24px" } }, "Play a day to start building your charts!")
-      : h("div.grid.grid--charts", {}, [
+      : h("div.grid.grid--charts.grid--charts-trends", {}, [
           cashChart(recent),
           profitChart(recent),
+          tipsChart(recent),
+          reviewChart(recent),
           weatherSalesChart(recent),
           repChart(recent),
         ]),
@@ -111,6 +124,11 @@ function customerInsights(recent: DayResult[]): HTMLElement {
 }
 
 // ---------------------------------------------------------------------------
+// A lifetime number that counts up on screen enter (final text preset).
+function lcu(n: number, kind: "int" | "locale" | "money" | "signed", text: string): Child {
+  return h("span", { "data-countup": String(n), "data-countup-fmt": kind }, text);
+}
+
 function lifetimePanel(g: GameState): HTMLElement {
   const st = g.stats;
   const avgStars = st.countStars > 0 ? st.sumStars / st.countStars : 0;
@@ -118,18 +136,18 @@ function lifetimePanel(g: GameState): HTMLElement {
     "🏅",
     "Lifetime",
     h("div.grid.grid--stats", {}, [
-      statBlock("Days played", String(st.daysPlayed)),
-      statBlock("Cups sold", st.totalCupsSold.toLocaleString()),
-      statBlock("Revenue", money(st.totalRevenue)),
-      statBlock("Net profit", signed(st.totalProfit)),
-      statBlock("Best day", money(st.bestDayProfit), st.bestDayProfitDay ? `day ${st.bestDayProfitDay}` : ""),
-      statBlock("Best day cups", String(st.bestDayCups)),
+      statBlock("Days played", lcu(st.daysPlayed, "int", String(st.daysPlayed))),
+      statBlock("Cups sold", lcu(st.totalCupsSold, "locale", st.totalCupsSold.toLocaleString())),
+      statBlock("Revenue", lcu(st.totalRevenue, "money", money(st.totalRevenue))),
+      statBlock("Net profit", lcu(st.totalProfit, "signed", signed(st.totalProfit))),
+      statBlock("Best day", lcu(st.bestDayProfit, "money", money(st.bestDayProfit)), st.bestDayProfitDay ? `day ${st.bestDayProfitDay}` : ""),
+      statBlock("Best day cups", lcu(st.bestDayCups, "int", String(st.bestDayCups))),
       statBlock("Longest streak", `${st.longestProfitStreak} days`),
       statBlock("Avg review", stars(avgStars), avgStars.toFixed(2)),
-      statBlock("Peak cash", money(st.peakCash)),
-      statBlock("Peak reputation", String(Math.round(st.peakReputation))),
-      statBlock("Customers lost", st.totalCustomersLost.toLocaleString()),
-      statBlock("Total tips", money(st.totalTips)),
+      statBlock("Peak cash", lcu(st.peakCash, "money", money(st.peakCash))),
+      statBlock("Peak reputation", lcu(Math.round(st.peakReputation), "int", String(Math.round(st.peakReputation)))),
+      statBlock("Customers lost", lcu(st.totalCustomersLost, "locale", st.totalCustomersLost.toLocaleString())),
+      statBlock("Total tips", lcu(st.totalTips, "money", money(st.totalTips))),
     ]),
   );
 }
@@ -154,16 +172,27 @@ function profitChart(recent: DayResult[]): HTMLElement {
   );
 }
 
+/** Average cups per weather condition (aggregated — one bar per condition). */
 function weatherSalesChart(recent: DayResult[]): HTMLElement {
-  return barChart(
-    recent.map((d) => ({
-      label: WEATHER_ICON[d.weather.condition],
-      value: d.cupsSold,
-      color: WX_COLOR[d.weather.condition],
-      tip: `${WEATHER_LABEL[d.weather.condition]} · Day ${d.day}<br><strong>${d.cupsSold} cups</strong>`,
-    })),
-    { title: "☀️ Cups sold by weather", yFormat: (n) => String(Math.round(n)) },
-  );
+  const ORDER: Condition[] = ["heatwave", "sunny", "partly", "cloudy", "rainy", "cold"];
+  const agg = new Map<Condition, { cups: number; days: number }>();
+  for (const d of recent) {
+    const a = agg.get(d.weather.condition) ?? { cups: 0, days: 0 };
+    a.cups += d.cupsSold;
+    a.days += 1;
+    agg.set(d.weather.condition, a);
+  }
+  const bars = ORDER.filter((c) => agg.has(c)).map((c) => {
+    const a = agg.get(c)!;
+    const avg = Math.round(a.cups / a.days);
+    return {
+      label: WEATHER_ICON[c],
+      value: avg,
+      color: WX_COLOR[c],
+      tip: `${WEATHER_LABEL[c]}<br><strong>${avg} cups/day</strong> avg over ${a.days} day${a.days === 1 ? "" : "s"}`,
+    };
+  });
+  return barChart(bars, { title: "☀️ Avg cups by weather", yFormat: (n) => String(Math.round(n)) });
 }
 
 function repChart(recent: DayResult[]): HTMLElement {
@@ -173,12 +202,35 @@ function repChart(recent: DayResult[]): HTMLElement {
   );
 }
 
+function reviewChart(recent: DayResult[]): HTMLElement {
+  return lineChart(
+    recent.map((d) => ({
+      x: d.day,
+      y: Math.round(d.avgStars * 10) / 10,
+      label: `Day ${d.day}<br><strong>${d.avgStars.toFixed(1)}★</strong> avg review`,
+    })),
+    { title: "⭐ Review trend", color: C.sun, yFormat: (n) => `${n.toFixed(1)}★` },
+  );
+}
+
+function tipsChart(recent: DayResult[]): HTMLElement {
+  return lineChart(
+    recent.map((d) => ({
+      x: d.day,
+      y: Math.round(d.tips * 100) / 100,
+      label: `Day ${d.day}<br><strong>${money(d.tips)}</strong> in tips`,
+    })),
+    { title: "🪙 Tips over time", color: C.grape, yFormat: money },
+  );
+}
+
 // ---------------------------------------------------------------------------
 function goalsPanel(g: GameState): HTMLElement {
   const done = g.completedGoalIds.length;
   return panel(
     "🎯",
     `Campaign Goals (${done}/${GOALS.length})`,
+    h("div.progressline", {}, [bar(done / GOALS.length, "var(--c-sun)")]),
     h(
       "div.goals",
       {},
@@ -198,6 +250,7 @@ function achievementsPanel(g: GameState): HTMLElement {
   return panel(
     "🏆",
     `Achievements (${g.unlockedAchievementIds.length}/${ACHIEVEMENTS.length})`,
+    h("div.progressline", {}, [bar(g.unlockedAchievementIds.length / ACHIEVEMENTS.length, "var(--c-grape)")]),
     h(
       "div.badges",
       {},

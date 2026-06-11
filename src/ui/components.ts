@@ -1,6 +1,7 @@
 /** Small reusable UI building blocks built on the `h()` helper. */
 import { h, type Child } from "./dom";
 import { sparkline } from "./charts/charts";
+import { flashClass } from "./anim";
 
 export function panel(icon: string, title: string, ...children: Child[]): HTMLElement {
   return h("section.panel", {}, [
@@ -28,12 +29,25 @@ export function pill(...children: Child[]): HTMLElement {
   return h("span.pill", {}, children);
 }
 
-/** A labelled progress/meter bar. `fraction` 0..1; optional accent CSS var. */
-export function bar(fraction: number, accent = "var(--c-sun)"): HTMLElement {
+// Last-seen meter fractions, so a re-rendered bar can shimmer when its value moved.
+const lastBarValues = new Map<string, number>();
+
+/**
+ * A labelled progress/meter bar. `fraction` 0..1; optional accent CSS var.
+ * Pass a stable `shimmerKey` to play a one-shot shimmer whenever the value
+ * changes between renders (e.g. reputation facets after a day).
+ */
+export function bar(fraction: number, accent = "var(--c-sun)", shimmerKey?: string): HTMLElement {
   const f = Math.max(0, Math.min(1, fraction));
-  return h("div.meter", {}, [
+  const meter = h("div.meter", {}, [
     h("div.meter__fill", { style: { width: `${f * 100}%`, background: accent } }),
   ]);
+  if (shimmerKey) {
+    const prev = lastBarValues.get(shimmerKey);
+    lastBarValues.set(shimmerKey, f);
+    if (prev !== undefined && Math.abs(prev - f) > 0.002) flashClass(meter, "shimmer", 700);
+  }
+  return meter;
 }
 
 export interface SliderOpts {
@@ -69,6 +83,7 @@ export function slider(o: SliderOpts): HTMLElement {
     onInput: (e: Event) => {
       const v = Number((e.target as HTMLInputElement).value);
       valueEl.textContent = fmt(v);
+      flashClass(valueEl, "value-pop", 300);
       o.onLive?.(v);
     },
     onChange: (e: Event) => o.onInput(Number((e.target as HTMLInputElement).value)),
@@ -120,6 +135,8 @@ export interface StatCardOpts {
   spark?: number[];
   sparkColor?: string;
   sub?: Child;
+  /** Visually accent this card as the row's headline number. */
+  hero?: boolean;
 }
 
 /**
@@ -136,7 +153,7 @@ export function statCard(o: StatCardOpts): HTMLElement {
     const good = up === upGood;
     deltaEl = h("span.statcard__delta", { class: good ? "pos" : "neg" }, `${up ? "▲" : "▼"} ${o.deltaText ?? Math.abs(o.delta)}`);
   }
-  return h("div.statcard", {}, [
+  return h("div.statcard" + (o.hero ? ".statcard--hero" : ""), {}, [
     h("div.statcard__head", {}, [
       h("span.statcard__label", {}, [o.icon ? `${o.icon} ` : "", o.label]),
       deltaEl,

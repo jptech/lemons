@@ -7,8 +7,9 @@ import { derive, inventoryQty, type SimSnapshot } from "../../engine";
 import { PRODUCT_BY_ID } from "../../data/products";
 import { h } from "../dom";
 import { button } from "../components";
+import { flashClass } from "../anim";
 import { clock, money, moneyShort } from "../format";
-import { StandView } from "./standView";
+import { StandView, buildSceneContext } from "./stand/standView";
 
 type StockKey = "lemon" | "sugar" | "ice" | "cup";
 const STOCK_ITEMS: { key: StockKey; icon: string }[] = [
@@ -57,6 +58,7 @@ export function renderSimulation(s: AppState): HTMLElement {
     }
   }
 
+  let skipped = false;
   const speedbar = h("div.speedbar", {}, [
     mkSpeed("⏸", 0),
     mkSpeed("🐢 ½×", 0.5),
@@ -64,7 +66,10 @@ export function renderSimulation(s: AppState): HTMLElement {
     mkSpeed("⏩ 2×", 2),
     mkSpeed("⏭ 4×", 4),
     h("div.spacer", {}),
-    button("Skip to end  ⏭️", () => active?.skip(), { size: "sm", variant: "sky" }),
+    button("Skip to end  ⏭️", () => {
+      skipped = true;
+      active?.skip();
+    }, { size: "sm", variant: "sky" }),
   ]);
 
   // Live stock readout (drains through the day; ice shows a maker badge).
@@ -108,7 +113,7 @@ export function renderSimulation(s: AppState): HTMLElement {
     ? h("div.sim__products", {}, [h("span.sim__stock-label.muted", {}, "Menu"), ...productEls.map((p) => p.el)])
     : null;
 
-  const el = h("main.screen.sim", {}, [
+  const el = h(`main.screen.sim.sim--${game.weatherToday.condition}`, {}, [
     h("div.sim__stage", {}, [
       canvas,
       h("div.hud", {}, [
@@ -130,9 +135,14 @@ export function renderSimulation(s: AppState): HTMLElement {
     speedbar,
   ]);
 
+  // Per-gauge depletion stage, so warning pulses fire once per threshold crossing.
+  const gaugeStage = new Map<StockKey, "ok" | "low" | "out">();
+  // Page dusk tint, updated at most every ~2 sim-minutes (never per frame).
+  let lastTodBucket = -1;
+
   // Start once the canvas is in the DOM (so it has a measured size).
   requestAnimationFrame(() => {
-    view = new StandView(canvas, game.weatherToday, getSettings());
+    view = new StandView(canvas, buildSceneContext(game), getSettings());
     onResize = () => view?.resize();
     window.addEventListener("resize", onResize);
 
@@ -145,12 +155,24 @@ export function renderSimulation(s: AppState): HTMLElement {
         servedEl.textContent = String(snap.served);
         lostEl.textContent = String(snap.lost);
         progressFill.style.width = `${(snap.minute / snap.openMinutes) * 100}%`;
+        const todBucket = Math.floor(snap.minute / 2);
+        if (todBucket !== lastTodBucket) {
+          lastTodBucket = todBucket;
+          el.style.setProperty("--tod", (snap.minute / snap.openMinutes).toFixed(3));
+        }
         for (const g of gauges) {
           const cur = snap.stock[g.key];
           g.countEl.textContent = String(cur);
           const f = Math.max(0, Math.min(1, cur / g.initial));
           g.fillEl.style.width = `${f * 100}%`;
           g.fillEl.style.background = f < 0.12 ? "var(--c-coral)" : f < 0.35 ? "var(--c-sun)" : "var(--c-mint)";
+          // one-shot warning pulses on threshold crossings (never per frame)
+          const stage = cur <= 0 ? "out" : f < 0.12 ? "low" : "ok";
+          if (stage !== (gaugeStage.get(g.key) ?? "ok")) {
+            gaugeStage.set(g.key, stage);
+            g.el.classList.toggle("stockgauge--out", stage === "out");
+            if (stage !== "ok") flashClass(g.el, "pulse", 500);
+          }
         }
         for (const p of productEls) {
           const sp = snap.products.find((x) => x.id === p.id);
@@ -162,8 +184,21 @@ export function renderSimulation(s: AppState): HTMLElement {
       },
       onDone: (sim) => {
         const { state, result } = sim.finalize();
-        teardown();
-        actions.commitDay(state, result);
+        const finish = () => {
+          teardown();
+          actions.commitDay(state, result);
+        };
+        // A short dusk beat — queue disperses, sign flips to CLOSED — before
+        // the recap. Skipped days and reduced motion commit immediately.
+        if (skipped || getSettings().reducedMotion || !view) return finish();
+        const closeStart = performance.now();
+        const tick = (now: number) => {
+          if (!view) return finish();
+          view.renderClosing(now);
+          if (now - closeStart < 1100) requestAnimationFrame(tick);
+          else finish();
+        };
+        requestAnimationFrame(tick);
       },
     });
     setSpeed(getSettings().defaultSpeed);

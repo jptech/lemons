@@ -131,7 +131,7 @@ Tagged by effort. Pulled from the theme review; trim/expand as we go.
   `rainShelter` hook reserved), **auto-restock hopper**, **premium-ingredient
   station** (raise quality ceiling), **cup auto-dispenser**.
 - Maintenance/wear + upkeep cost.
-- Show owned equipment on the canvas stand.
+- ~~Show owned equipment on the canvas stand.~~ ✅ shipped (graphics round).
 
 ### Location (more)
 - Surface unlock **ROI** ("+160 traffic vs +$95 rent → break-even ~X cups").
@@ -353,3 +353,46 @@ Tagged by effort. Pulled from the theme review; trim/expand as we go.
   `test/metricsResearch.test.ts`; 6/6 balance seeds still survive.
   (Deferred to later: the `recipePresets` capability / preset UI, and a
   `bulkDiscountBonus` research lever — both noted but not shipped this round.)
+
+## Graphics round (canvas scene + UI juice)
+
+- **Stand scene rebuilt as modules** (`src/ui/screens/stand/`): `standView`
+  orchestrates; `backdrop` (weather sky, sun arc + long shadows, 5 location
+  silhouettes, ground/sidewalk, tod wash — all baked into an offscreen buffer
+  rebaked ~every 10 sim-min), `structure` (booth + declarative equipment-line →
+  prop table + OPEN/CLOSED sign flips), `people` (queue walk-up paths, idle
+  bob, regulars' 💛, staff icons/tiers at stations, balk 😤 / renege 😞 exits,
+  post-purchase hop), `fx` (pops, rain/snow, cup-handoff arcs, 5★ star bursts,
+  tip sparkles, 🔥 rush streak, stockout vignette, drifting clouds, heat
+  shimmer, rain puddles + ripples), `draw` (emoji sprite cache + shadows),
+  `sceneContext` (read-only GameState → scene data). Engine untouched.
+- **UI juice**: staggered card entrances, charts animate in (bars grow, lines
+  trace, donut sweeps), sequenced recap reveal (delayed count-ups → profit
+  punch → reward-pill cascade → confetti), buy-success flashes, meter shimmer,
+  slider value pop, tab fades, weather-tinted topbar + sim page (`--tod` dusk
+  blend), menu hero (sun rays, per-letter title pop, CSS strollers).
+- **Gates & perf**: `body.reduced-motion` class (synced from settings) backs a
+  global CSS kill-switch; canvas honors reducedMotion/weatherFx per-feature.
+  rAF p95 ≈ 0.6ms on the worst-case scene (rainy downtown, full equipment, 4×).
+- **QA handle**: `__lemon.debug` (forceWeather / setLocation / grantEquipment /
+  grantAllEquipment / hireStaff / addCash / setSettings) for visual QA.
+
+## UI/UX polish round (recap / analytics / planning)
+
+- **Recap**: a one-line **day verdict** under the title (best-day / great /
+  solid / break-even / rough / nobody-served, with a mint/coral header accent),
+  Profit as a **hero stat card**, a **sticky footer** with tomorrow's forecast
+  teaser next to "Start Day N".
+- **Analytics**: header subtitle (day · location · mode · chart window),
+  lifetime numbers count up, headline charts in a balanced **2×2 grid**,
+  "Cups by weather" now **aggregates avg cups per condition** (was one bar per
+  day), goals/achievements panels show completion meters, emoji axis labels
+  render a size up.
+- **Planning**: Grow tabs are icon-over-label (no more "Equip…" truncation).
+- **Chart fix**: a donut with a single 100% segment (e.g. rent-only day) used
+  to draw nothing — sweep now capped just shy of 360°.
+- **Follow-up**: analytics trends rounded out to six charts (added ⭐ Review
+  trend + 🪙 Tips) in a capped 3×2 grid; Grow tabs redesigned as segmented
+  buttons (icon + full label, 2×2 in narrow columns) with **affordable-action
+  count badges** per tab (buyable equipment / staff actions / startable
+  research / unlockable locations).

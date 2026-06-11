@@ -36,7 +36,23 @@ import {
 import { PRODUCTS, PRODUCT_BY_ID } from "../../data/products";
 import { h, type Child } from "../dom";
 import { bar, button, panel, pill, slider, statBlock } from "../components";
+import { flashClass } from "../anim";
 import { money, moneyShort, moneyWhole, pct } from "../format";
+
+// One-shot "flash this on next render" note — a purchase re-renders the whole
+// screen, so the click handler records a key and the next render consumes it
+// by playing a success flash on the re-rendered element.
+let pendingFlash: string | null = null;
+function flashOnNextRender(key: string): void {
+  pendingFlash = key;
+}
+function consumeFlash(key: string, el: HTMLElement): HTMLElement {
+  if (pendingFlash === key) {
+    pendingFlash = null;
+    flashClass(el, "flash-success", 600);
+  }
+  return el;
+}
 
 const STOCK_ROWS: { item: ItemId; icon: string; name: string; note: (g: GameState) => string }[] = [
   {
@@ -106,7 +122,7 @@ function topbar(g: GameState): HTMLElement {
   const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][(g.day - 1) % 7];
   const cashPulse = lastCashSeen !== null && lastCashSeen !== g.cash && !getSettings().reducedMotion;
   lastCashSeen = g.cash;
-  return h("header.topbar", {}, [
+  return h(`header.topbar.topbar--${f.condition}`, {}, [
     h("div.topbar__brand", {}, [
       h("span.topbar__day", {}, `Day ${g.day}`),
       h("span.muted", {}, dow),
@@ -116,7 +132,7 @@ function topbar(g: GameState): HTMLElement {
       h("span.topbar__wicon", {}, WEATHER_ICON[f.condition]),
       h("div.col", { style: { gap: "0" } }, [
         h("strong", {}, WEATHER_LABEL[f.condition]),
-        h("span.muted", {}, `forecast · ${f.tempF}°F`),
+        h("span.muted.topbar__wconf", {}, `forecast · ${f.tempF}°F`),
       ]),
     ]),
     h("div.spacer", {}),
@@ -207,12 +223,12 @@ function reputationPanel(g: GameState): HTMLElement {
       f.delta > 0.3 ? h("span.rep-facet__arrow.pos", {}, "▲")
       : f.delta < -0.3 ? h("span.rep-facet__arrow.neg", {}, "▼")
       : h("span.rep-facet__arrow.muted", {}, "·");
+    const meter = bar(f.value / 100, facetColor(f.value), `rep:${f.label}`);
+    meter.classList.add("rep-facet__meter");
     return h("div.rep-facet", { title: f.tip }, [
       h("span.rep-facet__icon", {}, f.icon),
       h("span.rep-facet__label", {}, f.label),
-      h("div.meter.rep-facet__meter", {}, [
-        h("div.meter__fill", { style: { width: `${Math.round(f.value)}%`, background: facetColor(f.value) } }),
-      ]),
+      meter,
       h("span.rep-facet__val.num", {}, `${Math.round(f.value)}`),
       arrow,
     ]);
@@ -482,14 +498,19 @@ function stockRow(g: GameState, row: (typeof STOCK_ROWS)[number]): HTMLElement {
         : null;
 
   // Segmented buy bar — one sleek control that spans the row width.
+  const buy = (qty: number) => {
+    flashOnNextRender(`stock:${row.item}`);
+    if (qty > 0) actions.buyStock(row.item, qty, grade);
+    else actions.buyMax(row.item, grade);
+  };
   const buyBar = h("div.buybar", {}, [
     h("button.buybar__btn", { onClick: () => actions.discardStock(row.item, 10), disabled: have <= 0 }, "−10"),
-    h("button.buybar__btn", { onClick: () => actions.buyStock(row.item, 10, grade) }, "+10"),
-    h("button.buybar__btn", { onClick: () => actions.buyStock(row.item, 50, grade) }, "+50"),
-    h("button.buybar__btn.buybar__btn--max", { onClick: () => actions.buyMax(row.item, grade) }, "Max"),
+    h("button.buybar__btn", { onClick: () => buy(10) }, "+10"),
+    h("button.buybar__btn", { onClick: () => buy(50) }, "+50"),
+    h("button.buybar__btn.buybar__btn--max", { onClick: () => buy(0) }, "Max"),
   ]);
 
-  return h("div.stockrow", {}, [
+  return consumeFlash(`stock:${row.item}`, h("div.stockrow", {}, [
     h("div.stockrow__head", {}, [
       h("span.stock__dot", { style: { background: ITEM_COLOR[row.item] } }),
       h("span.stockrow__name", {}, `${row.icon} ${row.name}`),
@@ -502,7 +523,7 @@ function stockRow(g: GameState, row: (typeof STOCK_ROWS)[number]): HTMLElement {
     ]),
     spoils > 0 ? h("span.spoil-warn", {}, `⚠️ ${spoils} ${row.item === "ice" ? "melt" : "spoil"} tonight`) : null,
     gradeToggle ? h("div.stockrow__controls", {}, [gradeToggle, buyBar]) : buyBar,
-  ]);
+  ]));
 }
 
 function gradeBtn(item: ItemId, grade: ItemGrade, current: ItemGrade): HTMLElement {
@@ -545,14 +566,33 @@ function marketingPanel(g: GameState): HTMLElement {
 // staff, locations) so they don't sprawl across the dashboard.
 type GrowTab = "equipment" | "staff" | "research" | "locations";
 let growTab: GrowTab = "equipment";
+let lastGrowTab: GrowTab = growTab;
+
+/** How many things the player could afford to do in each Grow tab right now. */
+function growActionCounts(g: GameState): Record<GrowTab, number> {
+  const equipment = EQUIPMENT_LINES.filter((line) => {
+    const ownedLevel = line.levels.filter((l) => g.ownedEquipmentIds.includes(l.id)).reduce((m, l) => Math.max(m, l.level), 0);
+    const next = line.levels.find((l) => l.level === ownedLevel + 1);
+    return next != null && equipmentStatus(g, next.id).kind === "buyable";
+  }).length;
+  const staff =
+    (g.staff.length < TUNING.STAFF_CAP ? 1 : 0) +
+    (g.cash >= TUNING.STAFF_TRAIN_COST ? g.staff.filter((st) => st.level < TUNING.STAFF_MAX_LEVEL).length : 0);
+  const research = g.research?.inProgress
+    ? 0
+    : RESEARCH_NODES.filter((n) => researchStatus(g, n.id).kind === "buyable").length;
+  const locations = LOCATIONS.filter((l) => !g.unlockedLocationIds.includes(l.id) && l.unlockCost <= g.cash).length;
+  return { equipment, staff, research, locations };
+}
 
 function growPanel(g: GameState): HTMLElement {
-  const tabs: { id: GrowTab; label: string }[] = [
-    { id: "equipment", label: "🛠️ Equipment" },
-    { id: "staff", label: "🧑‍🍳 Staff" },
-    { id: "research", label: "🔬 Research" },
-    { id: "locations", label: "📍 Locations" },
+  const tabs: { id: GrowTab; icon: string; label: string }[] = [
+    { id: "equipment", icon: "🛠️", label: "Equipment" },
+    { id: "staff", icon: "🧑‍🍳", label: "Staff" },
+    { id: "research", icon: "🔬", label: "Research" },
+    { id: "locations", icon: "📍", label: "Locations" },
   ];
+  const counts = growActionCounts(g);
   const content =
     growTab === "equipment"
       ? equipmentContent(g)
@@ -561,6 +601,9 @@ function growPanel(g: GameState): HTMLElement {
         : growTab === "research"
           ? researchContent(g)
           : locationContent(g);
+  // Fade the body in only when the tab actually changed (not on every re-render).
+  const switched = growTab !== lastGrowTab;
+  lastGrowTab = growTab;
   return h("section.panel.grow", {}, [
     h(
       "div.tabbar",
@@ -573,12 +616,17 @@ function growPanel(g: GameState): HTMLElement {
               growTab = t.id;
               actions.refresh();
             },
+            title: counts[t.id] > 0 ? `${t.label} — ${counts[t.id]} affordable now` : t.label,
           },
-          t.label,
+          [
+            h("span.tab__icon", {}, t.icon),
+            h("span.tab__label", {}, t.label),
+            counts[t.id] > 0 ? h("span.tab__badge", {}, String(Math.min(counts[t.id], 9))) : null,
+          ],
         ),
       ),
     ),
-    h("div.grow__body", {}, content),
+    h("div.grow__body" + (switched ? ".tab-fade" : ""), {}, content),
   ]);
 }
 
@@ -604,7 +652,10 @@ function equipmentContent(g: GameState): Child[] {
         } else {
           const st = equipmentStatus(g, next.id);
           if (st.kind === "buyable" || st.kind === "tooExpensive") {
-            action = button(moneyWhole(next.cost), () => actions.buyEquipment(next.id), { size: "sm", disabled: st.kind === "tooExpensive" });
+            action = button(moneyWhole(next.cost), () => {
+              flashOnNextRender(`equip:${line.line}`);
+              actions.buyEquipment(next.id);
+            }, { size: "sm", disabled: st.kind === "tooExpensive" });
           } else {
             action = h("span.pill.pill--locked", {}, "🔒");
             rowClass = "shop__row--locked";
@@ -612,7 +663,7 @@ function equipmentContent(g: GameState): Child[] {
           }
         }
 
-        return h("div.shop__row", { class: rowClass }, [
+        return consumeFlash(`equip:${line.line}`, h("div.shop__row", { class: rowClass }, [
           h("div.shop__icon", {}, def.icon),
           h("div.shop__info", {}, [
             h("strong", {}, [def.name, ownedLevel > 0 ? h("span.lvl", {}, `Lv.${ownedLevel}`) : null]),
@@ -620,7 +671,7 @@ function equipmentContent(g: GameState): Child[] {
             lockText ? h("div.shop__lock", {}, `🔒 ${lockText}`) : null,
           ]),
           h("div.shop__action", {}, action),
-        ]);
+        ]));
       }),
     ),
   ];
@@ -691,7 +742,7 @@ function staffContent(g: GameState): Child[] {
           "div.shop",
           {},
           STAFF_TIERS.map((t) =>
-            h("div.shop__row", {}, [
+            consumeFlash(`staff:${t.tier}`, h("div.shop__row", {}, [
               h("div.shop__icon", {}, t.icon),
               h("div.shop__info", {}, [
                 h("strong", {}, t.name),
@@ -699,9 +750,12 @@ function staffContent(g: GameState): Child[] {
               ]),
               h("div.shop__action.shop__action--group", {}, [
                 h("span.small.muted", {}, `${moneyWhole(t.wage)}/day`),
-                button("Hire", () => actions.hireStaff(t.tier), { size: "sm", variant: "sky" }),
+                button("Hire", () => {
+                  flashOnNextRender(`staff:${t.tier}`);
+                  actions.hireStaff(t.tier);
+                }, { size: "sm", variant: "sky" }),
               ]),
-            ]),
+            ])),
           ),
         ),
   ];
@@ -804,12 +858,14 @@ function financeBar(g: GameState): HTMLElement {
 function openBar(g: GameState): HTMLElement {
   const servable = sel.servableCups(g);
   const projected = sel.projectedCustomers(g);
+  const open = button(["Open for Business  ", h("span", {}, "▶")], () => actions.goTo("simulation"), {
+    variant: "mint",
+    size: "lg",
+    disabled: servable <= 0,
+  });
+  if (servable > 0) open.classList.add("btn--beckon"); // gentle idle glow when ready
   return h("div.openbar", {}, [
     h("div.openbar__hint.muted", {}, servable <= 0 ? "⚠️ No lemonade to sell — buy some stock first!" : `Ready to serve ~${Math.min(servable, projected)} cups`),
-    button(["Open for Business  ", h("span", {}, "▶")], () => actions.goTo("simulation"), {
-      variant: "mint",
-      size: "lg",
-      disabled: servable <= 0,
-    }),
+    open,
   ]);
 }

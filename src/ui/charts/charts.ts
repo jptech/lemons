@@ -1,5 +1,7 @@
 /** Hand-rolled SVG charts — clean, tooltip-driven, ≤2 series, brand-colored. */
 import { svg } from "../dom";
+import { getSettings } from "../../store/settings";
+import { clamp01, easeOutCubic } from "../tween";
 import {
   chartCard,
   DEFAULT_MARGIN,
@@ -8,6 +10,20 @@ import {
   scaleLinear,
   Tooltip,
 } from "./chartUtils";
+
+/**
+ * Prime a path to trace itself in (stroke-dash trick). Must only run when the
+ * animation will actually play — a primed-but-unanimated path stays invisible.
+ */
+function traceIn(path: SVGElement, durationMs = 600): void {
+  if (getSettings().reducedMotion) return;
+  const len = (path as SVGPathElement).getTotalLength?.();
+  if (!len || !Number.isFinite(len)) return;
+  path.style.strokeDasharray = String(len);
+  path.style.strokeDashoffset = String(len);
+  path.style.animationDuration = `${durationMs}ms`;
+  path.classList.add("chart__line--enter");
+}
 
 const C = {
   sun: "#ffd43b",
@@ -57,15 +73,17 @@ export function lineChart(
   // soft area fill
   if (pts.length > 1) {
     const area = `${pathFrom(pts)} L${pts[pts.length - 1]![0].toFixed(1)},${sy(yMin)} L${pts[0]![0].toFixed(1)},${sy(yMin)} Z`;
-    root.appendChild(svg("path", { d: area, fill: color, opacity: "0.12" }));
-    root.appendChild(svg("path", { d: pathFrom(pts), fill: "none", stroke: color, "stroke-width": 3, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    root.appendChild(svg("path", { d: area, fill: color, opacity: "0.12", class: "chart__area--enter" }));
+    const line = svg("path", { d: pathFrom(pts), fill: "none", stroke: color, "stroke-width": 3, "stroke-linejoin": "round", "stroke-linecap": "round" });
+    traceIn(line);
+    root.appendChild(line);
   }
 
   const { card, body } = chartCard(opts.title, root);
   const tip = new Tooltip(body);
   data.forEach((d, i) => {
     const [cx, cy] = pts[i]!;
-    const dot = svg("circle", { cx, cy, r: 4, fill: "#fff", stroke: color, "stroke-width": 2.5, class: "chart__dot" });
+    const dot = svg("circle", { cx, cy, r: 4, fill: "#fff", stroke: color, "stroke-width": 2.5, class: "chart__dot chart__area--enter" });
     const hit = svg("circle", { cx, cy, r: 12, fill: "transparent", class: "chart__hit" });
     hit.addEventListener("mouseenter", () => tip.show((cx / W) * body.clientWidth, (cy / H) * body.clientHeight - 8, d.label));
     hit.addEventListener("mouseleave", () => tip.hide());
@@ -116,12 +134,17 @@ export function barChart(
       height: Math.max(0, hgt),
       rx: 5,
       fill: d.color ?? C.sun,
-      class: "chart__bar",
+      class: "chart__bar chart__bar--enter",
+      style: `--i: ${i}`,
     });
     rect.addEventListener("mouseenter", () => tip.show((cx / W) * body.clientWidth, (y / H) * body.clientHeight - 8, d.tip));
     rect.addEventListener("mouseleave", () => tip.hide());
     root.appendChild(rect);
-    root.appendChild(svg("text", { x: cx, y: H - m.b + 16, "text-anchor": "middle", class: "chart__axis" }, d.label));
+    // emoji-only labels (weather, archetypes) read better a size up
+    const iconLabel = /\p{Extended_Pictographic}/u.test(d.label);
+    root.appendChild(
+      svg("text", { x: cx, y: H - m.b + 16, "text-anchor": "middle", class: iconLabel ? "chart__axis chart__axis--icon" : "chart__axis" }, d.label),
+    );
   });
   return card;
 }
@@ -144,18 +167,29 @@ export function donut(
   const total = segments.reduce((s, x) => s + x.value, 0) || 1;
   const root = svg("svg", { viewBox: `0 0 ${size} ${size}`, class: "chart__svg chart__donut" });
 
-  let a0 = -Math.PI / 2;
   const { card, body } = chartCard(opts.title, root);
   const tip = new Tooltip(body);
 
-  for (const seg of segments) {
-    if (seg.value <= 0) continue;
-    const a1 = a0 + (seg.value / total) * Math.PI * 2;
+  // Segment geometry as fractions of the full circle, so the whole ring can
+  // sweep in from 12 o'clock by scaling every angle by `sweep` (0..1).
+  // A full-circle segment (single cost category) would start and end on the
+  // same point and draw nothing — cap the sweep just shy of 360°.
+  const segDef = (f0: number, f1: number) => {
+    f1 = Math.min(f1, f0 + 0.99985);
+    const a0 = -Math.PI / 2 + f0 * Math.PI * 2;
+    const a1 = -Math.PI / 2 + f1 * Math.PI * 2;
     const large = a1 - a0 > Math.PI ? 1 : 0;
     const p = (radius: number, a: number) => `${(cx + radius * Math.cos(a)).toFixed(2)},${(cy + radius * Math.sin(a)).toFixed(2)}`;
-    const d = `M${p(r, a0)} A${r},${r} 0 ${large} 1 ${p(r, a1)} L${p(inner, a1)} A${inner},${inner} 0 ${large} 0 ${p(inner, a0)} Z`;
-    const path = svg("path", { d, fill: seg.color, class: "chart__seg" });
-    const mid = (a0 + a1) / 2;
+    return `M${p(r, a0)} A${r},${r} 0 ${large} 1 ${p(r, a1)} L${p(inner, a1)} A${inner},${inner} 0 ${large} 0 ${p(inner, a0)} Z`;
+  };
+
+  const live: Array<{ path: SVGElement; f0: number; f1: number }> = [];
+  let f0 = 0;
+  for (const seg of segments) {
+    if (seg.value <= 0) continue;
+    const f1 = f0 + seg.value / total;
+    const path = svg("path", { d: segDef(f0, f1), fill: seg.color, class: "chart__seg" });
+    const mid = -Math.PI / 2 + ((f0 + f1) / 2) * Math.PI * 2;
     path.addEventListener("mouseenter", () =>
       tip.show(
         ((cx + (r * 0.8) * Math.cos(mid)) / size) * body.clientWidth,
@@ -165,7 +199,22 @@ export function donut(
     );
     path.addEventListener("mouseleave", () => tip.hide());
     root.appendChild(path);
-    a0 = a1;
+    live.push({ path, f0, f1 });
+    f0 = f1;
+  }
+
+  // Sweep the ring in clockwise (rAF; ≤6 `d` rebuilds per frame).
+  if (!getSettings().reducedMotion && live.length > 0) {
+    const dur = 500;
+    let start = 0;
+    const step = (now: number) => {
+      if (!start) start = now;
+      const sweep = easeOutCubic(clamp01((now - start) / dur));
+      for (const s of live) s.path.setAttribute("d", segDef(s.f0 * sweep, s.f1 * sweep));
+      if (sweep < 1) requestAnimationFrame(step);
+    };
+    for (const s of live) s.path.setAttribute("d", segDef(0, 0));
+    requestAnimationFrame(step);
   }
 
   if (opts.centerValue) {
@@ -190,17 +239,17 @@ export function sparkline(values: number[], opts: { color?: string; width?: numb
   const sy = scaleLinear([min, max === min ? min + 1 : max], [H - 3, 3]);
   const pts: Array<[number, number]> = values.map((v, i) => [sx(i), sy(v)]);
   // non-scaling-stroke keeps the line crisp when the SVG is stretched to fit.
-  root.appendChild(
-    svg("path", {
-      d: pathFrom(pts),
-      fill: "none",
-      stroke: color,
-      "stroke-width": 2.5,
-      "stroke-linecap": "round",
-      "stroke-linejoin": "round",
-      "vector-effect": "non-scaling-stroke",
-    }),
-  );
+  const path = svg("path", {
+    d: pathFrom(pts),
+    fill: "none",
+    stroke: color,
+    "stroke-width": 2.5,
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    "vector-effect": "non-scaling-stroke",
+  });
+  traceIn(path, 400);
+  root.appendChild(path);
   return root;
 }
 
