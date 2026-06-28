@@ -1,8 +1,9 @@
 import { ARCHETYPES } from "../data/archetypes";
 import { LOCATION_BY_ID } from "../data/locations";
 import { EVENT_BY_ID } from "../data/events";
-import { GOALS } from "../data/goals";
+import { GOALS, rung, rungPrestige } from "../data/goals";
 import { ACHIEVEMENTS } from "../data/achievements";
+import { CONTRACT_BY_ID, dealWeek, statValue } from "../data/contracts";
 import { Rng } from "./rng";
 import {
   blendRep,
@@ -40,6 +41,8 @@ import { TUNING } from "./tuning";
 import type {
   ArchetypeDef,
   ArchetypeId,
+  ContractInstance,
+  ContractResolution,
   DayMetrics,
   DayResult,
   DemographicsRow,
@@ -1056,6 +1059,72 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
   // Surface what was earned *today* for the recap (result is shared with next.history).
   result.newGoals = completedGoalIds.filter((id) => !prev.completedGoalIds.includes(id));
   result.newAchievements = unlockedAchievementIds.filter((id) => !prev.unlockedAchievementIds.includes(id));
+
+  // ---- Endless Tycoon ladder (Phase L1) ----
+  // Once the player has cleared a few base goals, the generative ladder begins.
+  // Cleared rungs award Prestige and surface as "new goals" on the recap; they
+  // are tracked by `ladderRung` (a count) and NOT pushed into completedGoalIds,
+  // so the campaign-complete check and the base-goals panel are untouched. This
+  // block draws no RNG.
+  if (completedGoalIds.length >= TUNING.LADDER_ACTIVATE_GOALS) {
+    let n = next.ladderRung ?? 0;
+    let prestige = next.prestige ?? 0;
+    let guard = 0;
+    while (guard++ < 100 && rung(n).check(next)) {
+      prestige += rungPrestige(n);
+      result.newGoals.push(`ladder_${n}`);
+      n++;
+    }
+    next.ladderRung = n;
+    next.prestige = prestige;
+  }
+
+  // ---- Weekly contracts (Phase L2) ----
+  // Evaluate accepted contracts (complete → pay cash+prestige; past deadline →
+  // expire), then deal a new week's offers. Dealing uses a throwaway rng seeded
+  // from seed+week (see dealWeek), so it draws NOTHING from the main stream —
+  // next.rngState was already finalized above and is untouched here.
+  {
+    const cs = next.contracts ?? { lastDealtWeek: -1, offers: [], active: [] };
+    const resolved: ContractResolution[] = [];
+    let cashAward = 0;
+    let prestigeAward = 0;
+    const stillActive: ContractInstance[] = [];
+    for (const c of cs.active) {
+      const def = CONTRACT_BY_ID[c.defId];
+      if (!def) continue; // drop unknown defs (deck changed) — neutral
+      const progress = statValue(next, def.stat) - c.baseline;
+      if (progress >= def.target) {
+        cashAward += def.rewardCash;
+        prestigeAward += def.rewardPrestige;
+        resolved.push({ name: def.name, status: "done", rewardCash: def.rewardCash, rewardPrestige: def.rewardPrestige });
+      } else if (c.deadlineDay !== null && next.day > c.deadlineDay) {
+        resolved.push({ name: def.name, status: "expired", rewardCash: 0, rewardPrestige: 0 });
+      } else {
+        stillActive.push(c);
+      }
+    }
+
+    let offers = cs.offers;
+    let lastDealtWeek = cs.lastDealtWeek;
+    const week = Math.floor((next.day - 1) / 7);
+    if (next.day >= TUNING.CONTRACTS_UNLOCK_DAY && week > lastDealtWeek) {
+      offers = dealWeek(next.seed, week, next.day).map((defId) => ({
+        id: `${defId}__w${week}`,
+        defId,
+        offeredDay: next.day,
+        acceptedDay: null,
+        deadlineDay: null,
+        baseline: 0,
+      }));
+      lastDealtWeek = week;
+    }
+
+    next.contracts = { lastDealtWeek, offers, active: stillActive };
+    if (cashAward > 0) next.cash = Math.round((next.cash + cashAward) * 100) / 100;
+    if (prestigeAward > 0) next.prestige = (next.prestige ?? 0) + prestigeAward;
+    if (resolved.length) result.contractsResolved = resolved;
+  }
 
   return { state: next, result };
 }

@@ -362,6 +362,35 @@ export interface DayResult {
   metrics?: DayMetrics;
   newGoals: string[];
   newAchievements: string[];
+  /** Weekly contracts that completed or expired today (absent on old saves). */
+  contractsResolved?: ContractResolution[];
+}
+
+// ---------------------------------------------------------------------------
+// Weekly contracts (Phase L2) — opt-in, deadline-bound objectives dealt 2/week
+// ---------------------------------------------------------------------------
+/** A dealt or accepted contract instance (the def lives in data/contracts.ts). */
+export interface ContractInstance {
+  id: string; // unique per offer, e.g. `${defId}__w${week}`
+  defId: string;
+  offeredDay: number;
+  acceptedDay: number | null;
+  deadlineDay: number | null; // set on accept (offeredDay-relative)
+  baseline: number; // tracked cumulative stat snapshotted at accept (0 until then)
+}
+
+export interface ContractsState {
+  /** Highest week index already dealt (so a reload doesn't re-deal). -1 = none. */
+  lastDealtWeek: number;
+  offers: ContractInstance[]; // un-accepted, expire when the next week is dealt
+  active: ContractInstance[]; // accepted, persist until completed or past deadline
+}
+
+export interface ContractResolution {
+  name: string;
+  status: "done" | "expired";
+  rewardCash: number;
+  rewardPrestige: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -404,6 +433,16 @@ export interface GameState {
 
   completedGoalIds: string[];
   unlockedAchievementIds: string[];
+
+  // --- Late-game meta-progression (Phase L1) ---
+  /** Next endless-ladder rung to evaluate = count of rungs already cleared. */
+  ladderRung: number;
+  /** Prestige currency: earned from ladder rungs / cash conversion, spent on perks. */
+  prestige: number;
+  /** Permanent perks bought with prestige (each unlocks a recurring decision). */
+  ownedPerkIds: string[];
+  /** Weekly contracts: offered + accepted objectives (Phase L2). */
+  contracts: ContractsState;
 
   stats: Stats;
   history: DayResult[];

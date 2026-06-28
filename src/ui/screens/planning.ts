@@ -19,8 +19,11 @@ import {
   itemHasPremium,
   inventoryQty,
   maxBuyable,
+  menuCap,
   nextBulkTier,
   nextLevelXp,
+  nextPrestigeCost,
+  perkStatus,
   primaryProductId,
   productStateOf,
   productTaste,
@@ -34,6 +37,8 @@ import {
   type Recipe,
 } from "../../engine";
 import { PRODUCTS, PRODUCT_BY_ID } from "../../data/products";
+import { PERKS } from "../../data/perks";
+import { CONTRACT_BY_ID, statValue, contractObjective } from "../../data/contracts";
 import { h, type Child } from "../dom";
 import { bar, button, panel, pill, slider, statBlock } from "../components";
 import { flashClass } from "../anim";
@@ -116,6 +121,16 @@ function optionBtn(
 // ---------------------------------------------------------------------------
 let lastCashSeen: number | null = null;
 
+/** The late-game meta-layer (ladder + prestige + perks) is surfaced once the
+ *  player has cleared a few base goals, or has already engaged with it. */
+function ladderActive(g: GameState): boolean {
+  return (
+    g.completedGoalIds.length >= TUNING.LADDER_ACTIVATE_GOALS ||
+    (g.prestige ?? 0) > 0 ||
+    (g.ownedPerkIds?.length ?? 0) > 0
+  );
+}
+
 function topbar(g: GameState): HTMLElement {
   const loc = sel.currentLocation(g);
   const f = g.weatherToday.forecast;
@@ -148,6 +163,12 @@ function topbar(g: GameState): HTMLElement {
         h("div.stat__label", {}, "Reputation"),
         h("div.stat__value.num", {}, `${Math.round(g.reputationGlobal)}`),
       ]),
+      ladderActive(g)
+        ? h("div.stat", { title: "Prestige — earn it from the Tycoon ladder, spend it on perks" }, [
+            h("div.stat__label", {}, "Prestige"),
+            h("div.stat__value.num", {}, `✦ ${Math.round(g.prestige ?? 0)}`),
+          ])
+        : null,
     ]),
     h("div.topbar__menu", {}, [
       g.mode === "campaign" ? goalChip(g) : null,
@@ -348,13 +369,14 @@ function productEditor(g: GameState, productId: ProductId): HTMLElement {
   ]);
 }
 
-/** Add/remove the optional products (capped at 2 active in Phase 1). */
+/** Add/remove the optional products (cap grows with menu-slot perks). */
 function menuManager(g: GameState): Child {
   const offMenu = PRODUCTS.filter((p) => !g.menu.includes(p.id));
   if (!offMenu.length) return null;
-  const atCap = g.menu.length >= 2;
+  const cap = menuCap(g);
+  const atCap = g.menu.length >= cap;
   return h("div.menu-manager", {}, [
-    h("p.muted.small", {}, atCap ? "Menu full (2). Remove a drink to swap." : "Add a second drink to widen your appeal — it splits your crew's time, so it's a trade-off."),
+    h("p.muted.small", {}, atCap ? `Menu full (${cap}). Remove a drink to swap, or unlock a menu slot in Perks.` : "Add another drink to widen your appeal — it splits your crew's time, so it's a trade-off."),
     ...offMenu.map((p) =>
       h("div.menu-add" + (atCap ? ".menu-add--off" : ""), {}, [
         h("div.menu-add__info", {}, [
@@ -549,7 +571,7 @@ function marketingPanel(g: GameState): HTMLElement {
     h(
       "div.opt-list",
       {},
-      MARKETING_TIERS.map((t) =>
+      MARKETING_TIERS.filter((t) => !t.unlockPerk || g.ownedPerkIds?.includes(t.unlockPerk)).map((t) =>
         optionBtn(
           `${t.icon} ${t.name}`,
           t.spend > 0 ? moneyWhole(t.spend) : "free",
@@ -564,7 +586,7 @@ function marketingPanel(g: GameState): HTMLElement {
 // ---------------------------------------------------------------------------
 // "Grow" — a tabbed panel grouping the occasional invest actions (equipment,
 // staff, locations) so they don't sprawl across the dashboard.
-type GrowTab = "equipment" | "staff" | "research" | "locations";
+type GrowTab = "equipment" | "staff" | "research" | "locations" | "perks" | "contracts";
 let growTab: GrowTab = "equipment";
 let lastGrowTab: GrowTab = growTab;
 
@@ -582,7 +604,14 @@ function growActionCounts(g: GameState): Record<GrowTab, number> {
     ? 0
     : RESEARCH_NODES.filter((n) => researchStatus(g, n.id).kind === "buyable").length;
   const locations = LOCATIONS.filter((l) => !g.unlockedLocationIds.includes(l.id) && l.unlockCost <= g.cash).length;
-  return { equipment, staff, research, locations };
+  const perks = PERKS.filter((p) => perkStatus(g, p.id)?.kind === "buyable").length;
+  const contracts = g.contracts.active.length < TUNING.CONTRACT_ACTIVE_CAP ? g.contracts.offers.length : 0;
+  return { equipment, staff, research, locations, perks, contracts };
+}
+
+/** Contracts surface once they're available (or any are in flight). */
+function contractsVisible(g: GameState): boolean {
+  return g.day >= TUNING.CONTRACTS_UNLOCK_DAY || g.contracts.active.length > 0 || g.contracts.offers.length > 0;
 }
 
 function growPanel(g: GameState): HTMLElement {
@@ -591,7 +620,11 @@ function growPanel(g: GameState): HTMLElement {
     { id: "staff", icon: "🧑‍🍳", label: "Staff" },
     { id: "research", icon: "🔬", label: "Research" },
     { id: "locations", icon: "📍", label: "Locations" },
+    ...(contractsVisible(g) ? [{ id: "contracts" as GrowTab, icon: "📋", label: "Contracts" }] : []),
+    ...(ladderActive(g) ? [{ id: "perks" as GrowTab, icon: "✦", label: "Perks" }] : []),
   ];
+  // If the active tab vanished (perks/contracts not yet unlocked), fall back.
+  if (!tabs.some((t) => t.id === growTab)) growTab = "equipment";
   const counts = growActionCounts(g);
   const content =
     growTab === "equipment"
@@ -600,7 +633,11 @@ function growPanel(g: GameState): HTMLElement {
         ? staffContent(g)
         : growTab === "research"
           ? researchContent(g)
-          : locationContent(g);
+          : growTab === "perks"
+            ? perksContent(g)
+            : growTab === "contracts"
+              ? contractsContent(g)
+              : locationContent(g);
   // Fade the body in only when the tab actually changed (not on every re-render).
   const switched = growTab !== lastGrowTab;
   lastGrowTab = growTab;
@@ -628,6 +665,111 @@ function growPanel(g: GameState): HTMLElement {
     ),
     h("div.grow__body" + (switched ? ".tab-fade" : ""), {}, content),
   ]);
+}
+
+function perksContent(g: GameState): Child[] {
+  const prestige = Math.round(g.prestige ?? 0);
+  const convCost = nextPrestigeCost(g);
+  const canConvert = g.cash >= convCost;
+  return [
+    h("p.muted.small", {}, "Spend Prestige (earned from the Tycoon ladder) on permanent perks that open new decisions."),
+    h("div.perk-bank.statblock", {}, [
+      h("strong", {}, `✦ ${prestige} Prestige`),
+      h("div", { style: { display: "flex", gap: "6px" } }, [
+        button(`+1 · ${moneyShort(convCost)}`, () => actions.convertCashToPrestige(1), {
+          size: "sm",
+          variant: "sky",
+          disabled: !canConvert,
+        }),
+        button("+5", () => actions.convertCashToPrestige(5), {
+          size: "sm",
+          variant: "sky",
+          disabled: !canConvert,
+        }),
+      ]),
+    ]),
+    h("p.muted.small", {}, "Convert spare cash into Prestige — the cost rises as you bank more."),
+    h(
+      "div.shop",
+      {},
+      PERKS.map((p) => {
+        const st = perkStatus(g, p.id);
+        let action: Child;
+        let rowClass = "";
+        let lockText: string | null = null;
+        if (st?.kind === "owned") {
+          action = pill("✓ owned");
+          rowClass = "shop__row--owned";
+        } else if (st?.kind === "needsPrev") {
+          action = h("span.pill.pill--locked", {}, "🔒");
+          rowClass = "shop__row--locked";
+          lockText = `Needs ${st.prevName}`;
+        } else {
+          action = button(`✦ ${p.cost}`, () => {
+            flashOnNextRender(`perk:${p.id}`);
+            actions.buyPerk(p.id);
+          }, { size: "sm", disabled: st?.kind !== "buyable" });
+        }
+        return consumeFlash(`perk:${p.id}`, h("div.shop__row", { class: rowClass }, [
+          h("div.shop__icon", {}, p.icon),
+          h("div.shop__info", {}, [
+            h("strong", {}, p.name),
+            h("div.small.muted", {}, p.blurb),
+            lockText ? h("div.shop__lock", {}, `🔒 ${lockText}`) : null,
+          ]),
+          h("div.shop__action", {}, action),
+        ]));
+      }),
+    ),
+  ];
+}
+
+function contractsContent(g: GameState): Child[] {
+  const cap = TUNING.CONTRACT_ACTIVE_CAP;
+  const { active, offers } = g.contracts;
+  const slotsFull = active.length >= cap;
+  const blocks: Child[] = [
+    h("p.muted.small", {}, `Weekly jobs — take up to ${cap} at once. Hit the target before the deadline for cash + Prestige.`),
+  ];
+
+  if (active.length) {
+    blocks.push(h("div.shop", {}, active.map((c) => {
+      const def = CONTRACT_BY_ID[c.defId];
+      if (!def) return null;
+      const progress = Math.max(0, statValue(g, def.stat) - c.baseline);
+      const frac = def.target > 0 ? progress / def.target : 0;
+      const daysLeft = c.deadlineDay !== null ? Math.max(0, c.deadlineDay - g.day + 1) : def.days;
+      return h("div.shop__row", {}, [
+        h("div.shop__icon", {}, def.icon),
+        h("div.shop__info", {}, [
+          h("strong", {}, def.name),
+          h("div.small.muted", {}, `${Math.floor(progress)} / ${def.target} · ${daysLeft}d left`),
+          bar(frac, "var(--c-mint, #51cf66)", `contract:${c.id}`),
+        ]),
+        h("div.shop__action", {}, pill(`💵${def.rewardCash} · ✦${def.rewardPrestige}`)),
+      ]);
+    }).filter(Boolean) as Child[]));
+  }
+
+  if (offers.length) {
+    blocks.push(h("p.muted.small", {}, slotsFull ? "Slots full — finish or wait out an active job to take a new one." : "This week's offers:"));
+    blocks.push(h("div.shop", {}, offers.map((o) => {
+      const def = CONTRACT_BY_ID[o.defId];
+      if (!def) return null;
+      return h("div.shop__row", {}, [
+        h("div.shop__icon", {}, def.icon),
+        h("div.shop__info", {}, [
+          h("strong", {}, def.name),
+          h("div.small.muted", {}, `${contractObjective(def)} → 💵${def.rewardCash} + ✦${def.rewardPrestige}`),
+        ]),
+        h("div.shop__action", {}, button("Accept", () => actions.acceptContract(o.id), { size: "sm", variant: "sky", disabled: slotsFull })),
+      ]);
+    }).filter(Boolean) as Child[]));
+  } else if (!active.length) {
+    blocks.push(h("p.muted.small", {}, "No offers right now — new jobs arrive each week."));
+  }
+
+  return blocks;
 }
 
 function equipmentContent(g: GameState): Child[] {

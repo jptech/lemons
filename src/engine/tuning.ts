@@ -5,8 +5,21 @@
 import type { Condition, ItemId } from "./types";
 
 export const TUNING = {
-  SCHEMA_VERSION: 8,
+  SCHEMA_VERSION: 10,
   STARTING_CASH: 80,
+
+  // --- Late-game: Tycoon ladder & Prestige (Phase L1) ---
+  BASE_MENU_CAP: 2, // active products before menu-slot perks
+  // The endless goal ladder activates once the player has cleared this many of
+  // the base campaign goals (≈ early-mid game) — surfaces depth before the win.
+  LADDER_ACTIVATE_GOALS: 3,
+  // Cash → Prestige conversion: an escalating cost per point (pure fn of balance)
+  // so a cash-rich late game has somewhere to pour money. Perks are the sink.
+  PRESTIGE_CONVERT_BASE: 2000, // cash for the first prestige point
+  PRESTIGE_CONVERT_GROWTH: 0.15, // +15% cost per prestige already held
+  // Weekly contracts (Phase L2)
+  CONTRACTS_UNLOCK_DAY: 4, // first contracts appear once the player has footing
+  CONTRACT_ACTIVE_CAP: 2, // how many contracts can be accepted at once
 
   // --- Day structure ---
   CUPS_PER_PITCHER: 8,

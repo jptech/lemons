@@ -2,9 +2,8 @@
 import { actions, type AppState } from "../../store/gameStore";
 import { WEATHER_ICON, WEATHER_LABEL } from "../../data/weather";
 import { EVENT_BY_ID } from "../../data/events";
-import { GOAL_BY_ID } from "../../data/goals";
+import { GOALS, goalTitle, ladderRungFromId, rungPrestige } from "../../data/goals";
 import { ACHIEVEMENT_BY_ID } from "../../data/achievements";
-import { GOALS } from "../../data/goals";
 import { PRODUCT_BY_ID } from "../../data/products";
 import { ARCHETYPE_BY_ID } from "../../data/archetypes";
 import { WAIT_BUCKETS_MIN } from "../../engine";
@@ -46,18 +45,23 @@ export function renderResults(s: AppState): HTMLElement {
   const recent = hist.slice(-12);
 
   const campaignDone = g.mode === "campaign" && g.completedGoalIds.length >= GOALS.length;
+  // The campaign is *won today* only when a base (non-ladder) goal completes the
+  // set this day. Endless ladder rungs also land in r.newGoals, but they must
+  // not re-trigger the victory banner / big confetti on every post-win day.
+  const campaignJustWon = campaignDone && r.newGoals.some((id) => ladderRungFromId(id) === null);
 
-  // Celebrate new goals/achievements once per day — after the stat cards and
-  // reward pills have landed (confetti self-gates on reduced motion).
-  if ((r.newGoals.length || r.newAchievements.length) && r.day !== lastCelebratedDay) {
+  // Celebrate new goals/achievements/contract wins once per day — after the stat
+  // cards and reward pills have landed (confetti self-gates on reduced motion).
+  const contractWon = (r.contractsResolved ?? []).some((c) => c.status === "done");
+  if ((r.newGoals.length || r.newAchievements.length || contractWon) && r.day !== lastCelebratedDay) {
     lastCelebratedDay = r.day;
-    setTimeout(() => confettiBurst(campaignDone ? 160 : 90), 700);
+    setTimeout(() => confettiBurst(campaignJustWon ? 160 : 90), 700);
   }
 
   return h("main.screen.results", {}, [
     recapHeader(r, g),
     rewardsBanner(r),
-    campaignDone && r.newGoals.length ? campaignBanner() : null,
+    campaignJustWon ? campaignBanner() : null,
     statRow(r, prev, recent),
     productBreakdownPanel(r),
     h("div.grid.grid--charts", {}, [
@@ -99,9 +103,20 @@ function wasteSection(r: DayResult): HTMLElement {
 }
 
 function rewardsBanner(r: DayResult): Child {
-  if (!r.newGoals.length && !r.newAchievements.length) return null;
+  const contracts = r.contractsResolved ?? [];
+  if (!r.newGoals.length && !r.newAchievements.length && !contracts.length) return null;
   const labels = [
-    ...r.newGoals.map((id) => `🎯 Goal: ${GOAL_BY_ID[id]?.title ?? id}`),
+    ...r.newGoals.map((id) => {
+      const n = ladderRungFromId(id);
+      return n === null
+        ? `🎯 Goal: ${goalTitle(id)}`
+        : `✦ ${goalTitle(id)} · +${rungPrestige(n)} Prestige`;
+    }),
+    ...contracts.map((c) =>
+      c.status === "done"
+        ? `📋 ${c.name} done · 💵${c.rewardCash} + ✦${c.rewardPrestige}`
+        : `📋 ${c.name} expired`,
+    ),
     ...r.newAchievements.map((id) => `${ACHIEVEMENT_BY_ID[id]?.icon ?? "🏆"} ${ACHIEVEMENT_BY_ID[id]?.title ?? id}`),
   ];
   // Pills cascade in after the stat cards (pop-in keyframe + backwards fill).

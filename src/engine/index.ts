@@ -29,6 +29,12 @@ export {
   unlockLocation,
   takeLoan,
   repayLoan,
+  menuCap,
+  buyPerk,
+  perkStatus,
+  convertCashToPrestige,
+  nextPrestigeCost,
+  acceptContract,
 } from "./reducers";
 
 export {
@@ -46,7 +52,7 @@ export {
   nextLevelXp,
   effectiveStaffBonus,
 } from "./derive";
-export type { EquipmentStatus, ResearchStatus } from "./reducers";
+export type { EquipmentStatus, ResearchStatus, PerkStatus } from "./reducers";
 
 export {
   expectedCustomers,
