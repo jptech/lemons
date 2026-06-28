@@ -1,8 +1,10 @@
 /**
  * Canvas renderer for the live stand. Pure view — it consumes SimSnapshots and
- * SimEvents and paints a cheerful scene (location backdrop, sun arc, evolving
- * booth, queue with moods, stations with progress, floating pops, weather).
- * No game logic lives here; all randomness is cosmetic.
+ * SimEvents and paints a living scene: a time-of-day-lit location backdrop
+ * with animated water/smoke/lights, the evolving booth (live pitcher, tip jar,
+ * string lights at dusk), procedurally drawn customers and staff, and layered
+ * weather/ambience effects. No game logic lives here; all randomness is
+ * cosmetic.
  */
 import type { SimEvent, SimSnapshot } from "../../../engine";
 import { clamp01 } from "../../tween";
@@ -92,11 +94,13 @@ export class StandView {
 
   /**
    * The brief dusk beat after the last minute: queue disperses, the sign flips
-   * to CLOSED, and a warm scrim rises. Driven by simulation.ts after onDone.
+   * to CLOSED, the string lights stay lit, and a warm scrim rises. Driven by
+   * simulation.ts after onDone.
    */
   renderClosing(now: number) {
     const dt = Math.min(64, now - this.last);
     this.last = now;
+    if (!this.reduceMotion) this.animT += dt / 1000;
     const g = sceneGeom(this.W, this.H);
     if (this.signPhase !== "closed") {
       this.signPhase = "closed";
@@ -109,37 +113,45 @@ export class StandView {
     this.fx.step(dt);
     this.paint(g, null, dt);
 
-    // deepening dusk + a soft cream scrim
+    // deepening dusk + a soft cream scrim (kept light so the bulbs glow)
     const ctx = this.ctx;
-    ctx.fillStyle = `rgba(120,90,140,${0.15 * this.closingT})`;
+    ctx.fillStyle = `rgba(110,80,135,${0.18 * this.closingT})`;
     ctx.fillRect(0, 0, this.W, this.H);
-    ctx.fillStyle = `rgba(255,249,219,${0.25 * this.closingT})`;
+    ctx.fillStyle = `rgba(255,249,219,${0.16 * this.closingT})`;
     ctx.fillRect(0, 0, this.W, this.H);
   }
 
   private paint(g: SceneGeom, snap: SimSnapshot | null, dt: number) {
     const ctx = this.ctx;
     const sunT = this.dayProgress;
+    const tod = snap ? this.dayProgress : 1; // closing beat = full dusk
     const cond = this.scene.weather.condition;
     ctx.clearRect(0, 0, this.W, this.H);
 
+    // backdrop: baked scene + its live layer (waves, fountain, smoke, halos)
     this.backdrop.draw(ctx, g, this.scene, this.dayProgress, this.dpr, this.weatherFx);
+    this.backdrop.drawLive(ctx, g, this.scene, tod, this.animT);
     this.fx.drawClouds(ctx, g, dt, cond);
+    this.fx.drawAmbient(ctx, g, dt, this.scene, tod);
     this.fx.drawShimmer(ctx, g, dt, cond);
+
+    // the booth and everyone around it
     drawStandShadow(ctx, g, sunT);
     drawStandBack(ctx, g);
     drawEquipment(ctx, g, this.scene, this.animT, sunT);
-    if (snap) this.people.drawStations(ctx, g, snap, this.scene, sunT);
-    if (snap) drawCounter(ctx, g, snap, this.scene);
-    if (snap) this.people.drawServed(ctx, g, snap);
+    if (snap) this.people.drawStations(ctx, g, snap, this.scene, sunT, this.animT);
+    if (snap) drawCounter(ctx, g, snap, this.scene, this.animT);
+    if (snap) this.people.drawServed(ctx, g, snap, sunT, this.animT);
     const sway = this.weatherFx ? Math.sin(this.animT * 0.9) * (cond === "rainy" ? 0.05 : 0.025) : 0;
-    drawCanopy(ctx, g, this.scene, this.signState(), sway, this.animT);
-    this.people.drawQueue(ctx, sunT);
-    this.people.drawWalkers(ctx, "back", sunT);
-    this.people.drawWalkers(ctx, "front", sunT);
+    drawCanopy(ctx, g, this.scene, this.signState(), sway, this.animT, tod);
+    this.people.drawQueue(ctx, sunT, this.animT);
+    this.people.drawWalkers(ctx, "back", sunT, this.animT);
+    this.people.drawWalkers(ctx, "front", sunT, this.animT);
+
+    // effects above everything
     this.fx.drawPops(ctx);
     this.fx.drawOverlays(ctx, g);
-    this.fx.drawWeather(ctx, g, dt, this.scene.weather.condition);
+    this.fx.drawWeather(ctx, g, dt, cond);
   }
 
   // --- hanging-sign ceremony ---------------------------------------------------
