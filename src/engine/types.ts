@@ -183,6 +183,10 @@ export interface Staff {
   xp: number;
   /** Derived from xp via TUNING.STAFF_XP_FOR_LEVEL; adds to the speed bonuses. */
   level: number;
+  /** Fatigue 0..100 (Phase L4): rises with work, lowers a tired station's speed. */
+  fatigue: number;
+  /** Planned to rest the upcoming day (recovers fatigue; no station; half wage). */
+  resting: boolean;
 }
 
 // ---------------------------------------------------------------------------

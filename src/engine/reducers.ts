@@ -209,9 +209,23 @@ export function hireStaff(state: GameState, tier: 1 | 2 | 3): GameState {
         role: state.staff.length === 0 ? "MAKE" : "SERVE",
         xp: 0,
         level: 0,
+        fatigue: 0,
+        resting: false,
       },
     ],
   };
+}
+
+/** Plan a staffer to rest the upcoming day (recover fatigue; no station; half
+ *  wage), or cancel that plan. Resets each day after settlement. */
+export function setStaffResting(state: GameState, id: string, resting: boolean): GameState {
+  let changed = false;
+  const staff = state.staff.map((s) => {
+    if (s.id !== id || s.resting === resting) return s;
+    changed = true;
+    return { ...s, resting };
+  });
+  return changed ? { ...state, staff } : state;
 }
 
 /** Pay to train a staff member: a chunk of XP, re-leveling immediately. No-op

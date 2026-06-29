@@ -5,7 +5,7 @@
 import type { Condition, ItemId } from "./types";
 
 export const TUNING = {
-  SCHEMA_VERSION: 11,
+  SCHEMA_VERSION: 12,
   STARTING_CASH: 80,
 
   // --- Brand equity / awareness reservoir (Phase L3) ---
@@ -132,7 +132,17 @@ export const TUNING = {
   MKT_REP_SCALE: 60,
 
   // --- Staff ---
-  STAFF_CAP: 3,
+  STAFF_CAP: 5,
+  // Marginal payroll: crews beyond WAGE_MARGINAL_FREE cost a rising premium
+  // (management overhead), so scaling the team isn't free. ≤3 staff is unchanged.
+  WAGE_MARGINAL_FREE: 3,
+  WAGE_MARGINAL_STEP: 0.1, // +10% total payroll per head beyond the free count
+  // Fatigue (Phase L4): staff tire as they work and slow down; resting recovers
+  // them (lost station that day + a reduced retainer wage). Pure/deterministic.
+  FATIGUE_WORK: 8, // fatigue gained per worked day (0..100)
+  FATIGUE_REST: 40, // fatigue recovered per rested day
+  FATIGUE_SPEED_PENALTY: 0.35, // station speed lost at full fatigue (×(1-this))
+  REST_WAGE_FRACTION: 0.5, // wage paid to a resting staffer (a retainer)
   // Staff experience: each day worked earns XP; training buys a chunk of it.
   // Levels are derived from cumulative XP via STAFF_XP_FOR_LEVEL (index = level).
   STAFF_XP_PER_DAY: 12,

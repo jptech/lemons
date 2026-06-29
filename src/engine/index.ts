@@ -21,6 +21,7 @@ export {
   hireStaff,
   fireStaff,
   setStaffRole,
+  setStaffResting,
   trainStaff,
   startResearch,
   researchStatus,

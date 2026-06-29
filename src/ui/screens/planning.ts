@@ -874,12 +874,26 @@ function staffXpBar(st: GameState["staff"][number]): Child {
   ]);
 }
 
+// A fatigue bar for a hired staffer (only once they've tired a little).
+function staffFatigueBar(st: GameState["staff"][number]): Child {
+  const f = st.fatigue ?? 0;
+  if (f < 1 && !st.resting) return null;
+  const color = f > 66 ? "var(--c-coral, #ff6b6b)" : f > 33 ? "var(--c-sun, #ffd43b)" : "var(--c-mint, #51cf66)";
+  const slow = Math.round(fatigueSpeedLoss(f) * 100);
+  const label = st.resting ? "💤 resting — recovering" : slow > 0 ? `😓 ${Math.round(f)}% tired · −${slow}% speed` : `${Math.round(f)}% tired`;
+  return h("div.xpbar", {}, [bar(f / 100, color, `fatigue:${st.id}`), h("span.small.muted", {}, label)]);
+}
+
+function fatigueSpeedLoss(fatigue: number): number {
+  return TUNING.FATIGUE_SPEED_PENALTY * (Math.max(0, Math.min(100, fatigue)) / 100);
+}
+
 // ---------------------------------------------------------------------------
 function staffContent(g: GameState): Child[] {
   const full = g.staff.length >= TUNING.STAFF_CAP;
   const canAffordTrain = g.cash >= TUNING.STAFF_TRAIN_COST;
   return [
-    h("p.muted.small", {}, `${g.staff.length}/${TUNING.STAFF_CAP} hired. Each adds a serving station. Crew gains experience daily — train them to level up faster.`),
+    h("p.muted.small", {}, `${g.staff.length}/${TUNING.STAFF_CAP} hired. Each adds a serving station and gains experience daily. They tire as they work and slow down — rest one to recover (half wage, no station that day).`),
     ...g.staff.map((st) =>
       h("div.shop__row", {}, [
         h("div.shop__icon", {}, st.icon),
@@ -887,8 +901,13 @@ function staffContent(g: GameState): Child[] {
           h("strong", {}, [st.name, h("span.lvl", {}, `Lv.${st.level}`), h("span.lvl", {}, `${moneyWhole(st.wage)}/day`)]),
           h("div.small.muted", {}, staffBenefitLeveled(st)),
           staffXpBar(st),
+          staffFatigueBar(st),
         ]),
         h("div.shop__action.shop__action--group", {}, [
+          button(st.resting ? "💤 Resting" : "Rest", () => actions.setStaffResting(st.id, !st.resting), {
+            size: "sm",
+            variant: st.resting ? "sky" : "ghost",
+          }),
           button(st.role === "MAKE" ? "🫙 Mixing" : "🥤 Serving", () => actions.setStaffRole(st.id, st.role === "MAKE" ? "SERVE" : "MAKE"), {
             size: "sm",
             variant: "ghost",

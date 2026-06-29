@@ -114,6 +114,7 @@ describe("catering contracts (operational orders)", () => {
     const staff = [0, 1, 2].map((i) => ({
       id: `s${i}`, tier: 3 as const, name: "Manager", icon: "🧑‍🍳", wage: 80,
       serveSpeedBonus: 0.9, batchSpeedBonus: 0.5, role: (i === 0 ? "MAKE" : "SERVE") as "MAKE" | "SERVE", xp: 0, level: 3,
+      fatigue: 0, resting: false,
     }));
     return {
       ...base, day: due, cash: 5000, staff,

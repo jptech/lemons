@@ -121,6 +121,15 @@ const MIGRATIONS: Record<number, (g: any) => GameState> = {
     ...g,
     brand: g.brand ?? { awareness: 0 },
   }),
+  // 11 -> 12: backfill staff fatigue/resting (fresh = no penalty). Neutral.
+  11: (g) => ({
+    ...g,
+    staff: (g.staff ?? []).map((s: Record<string, unknown>) => ({
+      ...s,
+      fatigue: typeof s.fatigue === "number" ? s.fatigue : 0,
+      resting: typeof s.resting === "boolean" ? s.resting : false,
+    })),
+  }),
 };
 
 function migrate(game: GameState, fromVersion: number): GameState {

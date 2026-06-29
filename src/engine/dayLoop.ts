@@ -12,6 +12,7 @@ import {
   effectiveFacets,
   effectiveReputation,
   effectiveStaffBonus,
+  fatigueMult,
   forecastConfidence,
   levelForXp,
   uniformFacets,
@@ -392,13 +393,15 @@ export class DaySim {
       },
     ];
     this.state.staff.forEach((st, i) => {
+      if (st.resting) return; // resting today → no station (Phase L4)
       const bonus = effectiveStaffBonus(st);
+      const fm = fatigueMult(st.fatigue ?? 0); // tired staff run their station slower
       stations.push({
         id: i + 1,
         kind: "staff",
         role: st.role,
-        serveMult: this.derived.serveSpeedMult + bonus.serve,
-        batchMult: this.derived.batchSpeedMult + bonus.batch,
+        serveMult: (this.derived.serveSpeedMult + bonus.serve) * fm,
+        batchMult: (this.derived.batchSpeedMult + bonus.batch) * fm,
         state: "idle",
         ticksLeft: 0,
         taskTime: 1,
@@ -901,7 +904,12 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
 
   // ---- Costs & cash ----
   const rent = location.rentPerDay;
-  const wages = prev.staff.reduce((sum, s) => sum + s.wage, 0);
+  // Payroll: resting staff draw a reduced retainer; large crews pay a rising
+  // marginal premium (≤WAGE_MARGINAL_FREE is unchanged from before L4).
+  const headcount = prev.staff.length;
+  const payrollMult = 1 + TUNING.WAGE_MARGINAL_STEP * Math.max(0, headcount - TUNING.WAGE_MARGINAL_FREE);
+  const wages =
+    prev.staff.reduce((sum, s) => sum + s.wage * (s.resting ? TUNING.REST_WAGE_FRACTION : 1), 0) * payrollMult;
   const marketing = prev.marketingSpend;
   const interest = Math.round(prev.debt * TUNING.LOAN_RATE_PER_DAY * 100) / 100;
   const stock = prev.todayStockSpend;
@@ -1102,10 +1110,15 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
   // Supplier prices drift overnight (one gaussian draw per item, fixed order).
   const supplier = stepSupplierPrices(prev.supplier, rng);
 
-  // Staff earn flat XP for the day worked (deterministic — no RNG); re-level.
+  // Staff earn flat XP for each day WORKED (deterministic — no RNG); re-level.
+  // Fatigue rises with work and recovers with rest. The rest plan resets daily.
   const nextStaff = prev.staff.map((s) => {
-    const xp = s.xp + TUNING.STAFF_XP_PER_DAY;
-    return { ...s, xp, level: levelForXp(xp) };
+    const worked = !s.resting;
+    const xp = s.xp + (worked ? TUNING.STAFF_XP_PER_DAY : 0);
+    const fatigue = worked
+      ? Math.min(100, (s.fatigue ?? 0) + TUNING.FATIGUE_WORK)
+      : Math.max(0, (s.fatigue ?? 0) - TUNING.FATIGUE_REST);
+    return { ...s, xp, level: levelForXp(xp), fatigue, resting: false };
   });
 
   // Research: tick the in-progress node; complete it when its days run out.
