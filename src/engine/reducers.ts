@@ -401,13 +401,12 @@ export function acceptContract(state: GameState, offerId: string): GameState {
   if (state.contracts.active.length >= TUNING.CONTRACT_ACTIVE_CAP) return state;
   const def = CONTRACT_BY_ID[offer.defId];
   if (!def) return state;
-  const accepted = {
-    ...offer,
-    acceptedDay: state.day,
-    // An N-day window covers days [day, day+N-1]; it expires when the day passes it.
-    deadlineDay: state.day + def.days - 1,
-    baseline: statValue(state, def.stat),
-  };
+  // challenge: an N-day window [day, day+N-1] (expires when the day passes it).
+  // catering: a single DUE day (day + leadDays) when the cohort arrives.
+  const deadlineDay =
+    def.kind === "challenge" ? state.day + def.days - 1 : state.day + def.leadDays;
+  const baseline = def.kind === "challenge" ? statValue(state, def.stat) : 0;
+  const accepted = { ...offer, acceptedDay: state.day, deadlineDay, baseline };
   return {
     ...state,
     contracts: {

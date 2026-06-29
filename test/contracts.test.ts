@@ -83,7 +83,8 @@ describe("acceptContract", () => {
     expect(s.contracts.active).toHaveLength(1);
     const a = s.contracts.active[0]!;
     expect(a.baseline).toBe(123); // weekend_rush tracks cups
-    expect(a.deadlineDay).toBe(8 + CONTRACT_BY_ID["weekend_rush"]!.days - 1);
+    const wr = CONTRACT_BY_ID["weekend_rush"]!;
+    expect(a.deadlineDay).toBe(8 + (wr.kind === "challenge" ? wr.days : 0) - 1);
     expect(g.contracts.active).toHaveLength(0); // original untouched
   });
 
@@ -98,6 +99,70 @@ describe("acceptContract", () => {
     expect(s.contracts.active).toHaveLength(2);
     const capped = acceptContract(s, "profit_sprint__w0");
     expect(capped).toBe(s); // no-op at the cap
+  });
+});
+
+describe("catering contracts (operational orders)", () => {
+  // A well-staffed, well-stocked stand on a catering contract's due day.
+  function cateringDayState(defId: string): GameState {
+    const base = newGame(1, "sandbox");
+    const def = CONTRACT_BY_ID[defId]!;
+    const due = 10;
+    const active: ContractInstance = {
+      id: `${defId}__w0`, defId, offeredDay: 8, acceptedDay: 8, deadlineDay: due, baseline: 0,
+    };
+    const staff = [0, 1, 2].map((i) => ({
+      id: `s${i}`, tier: 3 as const, name: "Manager", icon: "🧑‍🍳", wage: 80,
+      serveSpeedBonus: 0.9, batchSpeedBonus: 0.5, role: (i === 0 ? "MAKE" : "SERVE") as "MAKE" | "SERVE", xp: 0, level: 3,
+    }));
+    return {
+      ...base, day: due, cash: 5000, staff,
+      inventory: [
+        { item: "cup", qty: 500, ageDays: 0 },
+        { item: "lemon", qty: 500, ageDays: 0 },
+        { item: "sugar", qty: 500, ageDays: 0 },
+        { item: "ice", qty: 500, ageDays: 0 },
+      ],
+      contracts: { lastDealtWeek: 0, offers: [], active: [active] },
+    };
+  }
+
+  test("accept sets the due day = day + leadDays", () => {
+    const g: GameState = {
+      ...newGame(1, "sandbox"), day: 8,
+      contracts: { lastDealtWeek: 0, active: [], offers: [{ id: "office_party__w0", defId: "office_party", offeredDay: 8, acceptedDay: null, deadlineDay: null, baseline: 0 }] },
+    };
+    const s = acceptContract(g, "office_party__w0");
+    const def = CONTRACT_BY_ID["office_party"]!;
+    expect(def.kind).toBe("catering");
+    expect(s.contracts.active[0]!.deadlineDay).toBe(8 + (def.kind === "catering" ? def.leadDays : 0));
+  });
+
+  test("a fully-served order completes and pays the bonus + Prestige", () => {
+    const g = cateringDayState("office_party"); // 60 cups, well-stocked & staffed
+    const { state, result } = simulateDay(g);
+    const res = result.contractsResolved ?? [];
+    expect(res).toHaveLength(1);
+    expect(res[0]!.status).toBe("done");
+    expect(res[0]!.rewardCash).toBe(120);
+    expect(state.contracts.active).toHaveLength(0);
+    expect(state.prestige).toBe(1); // ladder inactive → catering is the only source
+  });
+
+  test("an unfulfillable order (no cups) expires", () => {
+    const g = { ...cateringDayState("office_party"), inventory: [] }; // nothing to serve
+    const { state, result } = simulateDay(g);
+    expect(result.contractsResolved?.[0]?.status).toBe("expired");
+    expect(state.contracts.active).toHaveLength(0);
+  });
+
+  test("the catering cohort is deterministic (same state → identical run)", () => {
+    const g = cateringDayState("office_party");
+    const a = simulateDay(g);
+    const b = simulateDay(g);
+    expect(a.state.rngState).toBe(b.state.rngState);
+    expect(a.result.cupsSold).toBe(b.result.cupsSold);
+    expect(a.result.contractsResolved).toEqual(b.result.contractsResolved);
   });
 });
 

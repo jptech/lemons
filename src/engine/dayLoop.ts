@@ -1,4 +1,4 @@
-import { ARCHETYPES } from "../data/archetypes";
+import { ARCHETYPES, ARCHETYPE_BY_ID } from "../data/archetypes";
 import { LOCATION_BY_ID } from "../data/locations";
 import { EVENT_BY_ID } from "../data/events";
 import { GOALS, rung, rungPrestige } from "../data/goals";
@@ -73,6 +73,12 @@ interface SimCustomer {
   priceSensitivity: number;
   tasteShift: { lemon: number; sugar: number; ice: number };
   waited: number;
+  /** Catering-order customer (a pre-paid bulk order, not a walk-in). */
+  catering?: boolean;
+  /** Locked per-cup price for a catering customer (overrides the product price). */
+  price?: number;
+  /** The catering contract instance this customer belongs to (for fulfilment). */
+  contractId?: string;
 }
 
 interface Station {
@@ -114,6 +120,10 @@ interface ProdRun {
   starSum: number;
   starCount: number;
 }
+
+/** Archetype stand-in for catering-order customers (kept out of public reviews/
+ *  reputation; only used for the live arrival/sale animation). */
+const CATERING_ARCH = ARCHETYPE_BY_ID.adult;
 
 // ---------------------------------------------------------------------------
 // Inventory helpers (operate on a working copy)
@@ -175,8 +185,15 @@ export class DaySim {
 
   // per-product run state (recipe/price/pool/accumulators)
   private readonly prods: Record<ProductId, ProdRun>;
-  private readonly menuIds: ProductId[];
+  private readonly menuIds: ProductId[]; // products the WALK-IN crowd can pick
+  private readonly brewIds: ProductId[]; // products to brew = menu ∪ catering
   private readonly primaryId: ProductId;
+
+  // Catering orders due today (Phase L2b): a deterministic cohort, scheduled by
+  // minute, that arrives on top of the walk-in crowd. No RNG is drawn for them.
+  private readonly cateringSchedule: { minute: number; product: ProductId; price: number; contractId: string }[] = [];
+  private cateringIdx = 0;
+  private readonly cateringFulfilled: Record<string, number> = {};
 
   // global counters (business-wide — drive reputation, stars, P&L)
   private cupsSold = 0;
@@ -241,6 +258,31 @@ export class DaySim {
       const ps = state.products[this.primaryId];
       if (ps) this.prods[this.primaryId] = this.buildProdRun(this.primaryId, ps, weather);
     }
+
+    // Catering orders due TODAY (Phase L2b). Build a brewable run for each ordered
+    // product (even off-menu) and a deterministic, evenly-spread arrival schedule.
+    // No RNG is drawn here, so the walk-in stream is unchanged when no order is due.
+    this.brewIds = [...this.menuIds];
+    for (const c of state.contracts?.active ?? []) {
+      const def = CONTRACT_BY_ID[c.defId];
+      if (!def || def.kind !== "catering" || c.deadlineDay !== state.day) continue;
+      const pid = def.productId;
+      if (!this.prods[pid]) {
+        const ps = state.products[pid];
+        if (ps) this.prods[pid] = this.buildProdRun(pid, ps, weather);
+      }
+      if (!this.prods[pid]) continue; // no recipe for it → can't fulfil
+      if (!this.brewIds.includes(pid)) this.brewIds.push(pid);
+      this.cateringFulfilled[c.id] = 0;
+      // Spread arrivals across the first ~70% of the day so there's time to serve
+      // the tail before close (a last-minute arrival could never be fulfilled).
+      const window = this.openMinutes * 0.7;
+      for (let i = 0; i < def.cups; i++) {
+        const minute = Math.min(this.openMinutes - 1, Math.floor(((i + 0.5) * window) / def.cups));
+        this.cateringSchedule.push({ minute, product: pid, price: def.pricePerCup, contractId: c.id });
+      }
+    }
+    this.cateringSchedule.sort((a, b) => a.minute - b.minute);
 
     // Top-of-funnel demand is driven by the PRIMARY product's price/tolerance.
     this.tolerance = this.prods[this.primaryId]!.tolerance;
@@ -395,6 +437,13 @@ export class DaySim {
     const arrivals = this.rng.poisson(lambda);
     for (let i = 0; i < arrivals; i++) this.arrive(events);
 
+    // 1b. Catering cohort (deterministic — draws no RNG). Spawn everyone scheduled
+    //     for this minute. They never balk and wait the whole day (pre-arranged).
+    while (this.cateringIdx < this.cateringSchedule.length && this.cateringSchedule[this.cateringIdx]!.minute <= this.minute) {
+      this.arriveCatering(this.cateringSchedule[this.cateringIdx]!, events);
+      this.cateringIdx++;
+    }
+
     // 2. Advance busy stations by one minute (fractional; carry the overshoot
     //    so faster workers actually finish sooner instead of rounding up).
     for (const st of this.stations) {
@@ -457,17 +506,45 @@ export class DaySim {
       tasteShift: arch.tasteShift,
       waited: 0,
     };
-    // Balk if the line is already longer than this customer will tolerate.
+    // Balk if the line is already longer than this customer will tolerate. Only
+    // the WALK-IN line counts — a pre-arranged catering cohort doesn't scare off
+    // walk-ins (they're served as capacity frees up).
     const avgServe = TUNING.SERVE_BASE / this.derived.serveSpeedMult;
     const throughput = this.stations.length / avgServe;
     const maxQueue = Math.max(1, Math.ceil(patience * throughput));
-    if (this.queue.length >= maxQueue) {
+    if (this.walkInQueueLen() >= maxQueue) {
       this.balked++;
       this.demoRow(arch.id).lost++;
       events.push({ type: "balk", archetype: arch.id });
       return;
     }
     this.queue.push(c);
+  }
+
+  /** Number of walk-in (non-catering) customers currently in line. */
+  private walkInQueueLen(): number {
+    let n = 0;
+    for (const c of this.queue) if (!c.catering) n++;
+    return n;
+  }
+
+  /** Spawn one catering-order customer: fixed product, locked price, very patient,
+   *  no balk. Draws no RNG. */
+  private arriveCatering(spec: { product: ProductId; price: number; contractId: string }, events: SimEvent[]) {
+    const c: SimCustomer = {
+      id: this.nextCustomerId++,
+      arch: CATERING_ARCH,
+      product: spec.product,
+      patience: this.openMinutes + 1, // pre-arranged — won't renege during the day
+      priceSensitivity: 1,
+      tasteShift: CATERING_ARCH.tasteShift,
+      waited: 0,
+      catering: true,
+      price: spec.price,
+      contractId: spec.contractId,
+    };
+    this.queue.push(c);
+    events.push({ type: "arrive", archetype: c.arch.id });
   }
 
   private pickArchetype(): ArchetypeDef {
@@ -532,7 +609,7 @@ export class DaySim {
   /** Which product to brew next: the front customer's (if their pool is empty),
    *  else the makeable product with the greatest shortfall. */
   private productToMake(): ProdRun | null {
-    const makeable = this.menuIds
+    const makeable = this.brewIds
       .map((id) => this.prods[id])
       .filter((pr): pr is ProdRun => !!pr && this.canMakeBatch(pr));
     if (!makeable.length) return null;
@@ -599,6 +676,20 @@ export class DaySim {
   private finalizeSale(st: Station, events: SimEvent[]) {
     const c = st.customer!;
     const pr = this.prods[c.product] ?? this.prods[this.primaryId]!;
+
+    // Catering orders are a private B2B sale: locked price, counts toward cups &
+    // revenue & fulfilment, but draws NO rng and is kept out of public reviews,
+    // tips, demographics and the reputation drivers (so it can't skew the brand).
+    if (c.catering) {
+      const cprice = c.price ?? pr.price;
+      this.cupsSold++;
+      this.revenue += cprice;
+      pr.revenue += cprice;
+      if (c.contractId) this.cateringFulfilled[c.contractId] = (this.cateringFulfilled[c.contractId] ?? 0) + 1;
+      events.push({ type: "sale", archetype: c.arch.id, price: cprice, stars: 5, satisfaction: 1 });
+      return;
+    }
+
     const price = pr.price;
     const weather = this.state.weatherToday;
 
@@ -665,19 +756,24 @@ export class DaySim {
   }
 
   private close(events: SimEvent[]) {
-    // Anyone still in line when we close didn't get served.
-    this.balked += this.queue.length;
-    for (const c of this.queue) this.demoRow(c.arch.id).lost++;
+    // Anyone still in line when we close didn't get served. Catering customers
+    // that went unserved are an unfulfilled order (tracked separately), not a
+    // walk-in we lost — keep them out of the balk/demographics tallies.
+    for (const c of this.queue) {
+      if (c.catering) continue;
+      this.balked++;
+      this.demoRow(c.arch.id).lost++;
+    }
     this.queue.length = 0;
     this.unsoldCups = this.totalPool(); // brewed but never sold (across products)
     this.over = true;
     events.push({ type: "close" });
   }
 
-  /** Total ready-to-serve cups across all products (floored). */
+  /** Total ready-to-serve cups across all brewed products (floored). */
   private totalPool(): number {
     let n = 0;
-    for (const id of this.menuIds) n += Math.floor(this.prods[id]?.pool ?? 0);
+    for (const id of this.brewIds) n += Math.floor(this.prods[id]?.pool ?? 0);
     return n;
   }
 
@@ -786,6 +882,7 @@ export class DaySim {
       waitMinSum: this.waitMinSum,
       waitMaxMin: this.waitMaxMin,
       waitHist: this.waitHist,
+      cateringFulfilled: this.cateringFulfilled,
     };
   }
 }
@@ -1093,15 +1190,29 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
     for (const c of cs.active) {
       const def = CONTRACT_BY_ID[c.defId];
       if (!def) continue; // drop unknown defs (deck changed) — neutral
-      const progress = statValue(next, def.stat) - c.baseline;
-      if (progress >= def.target) {
+      const win = () => {
         cashAward += def.rewardCash;
         prestigeAward += def.rewardPrestige;
         resolved.push({ name: def.name, status: "done", rewardCash: def.rewardCash, rewardPrestige: def.rewardPrestige });
-      } else if (c.deadlineDay !== null && next.day > c.deadlineDay) {
-        resolved.push({ name: def.name, status: "expired", rewardCash: 0, rewardPrestige: 0 });
+      };
+      const lose = () => resolved.push({ name: def.name, status: "expired", rewardCash: 0, rewardPrestige: 0 });
+
+      if (def.kind === "challenge") {
+        const progress = statValue(next, def.stat) - c.baseline;
+        if (progress >= def.target) win();
+        else if (c.deadlineDay !== null && next.day > c.deadlineDay) lose();
+        else stillActive.push(c);
       } else {
-        stillActive.push(c);
+        // Catering: resolves on the day it was due (just played = prev.day). Full
+        // fulfilment pays the bonus; the per-cup revenue was collected live.
+        if (c.deadlineDay === prev.day) {
+          if ((d.cateringFulfilled[c.id] ?? 0) >= def.cups) win();
+          else lose();
+        } else if (c.deadlineDay !== null && prev.day > c.deadlineDay) {
+          lose(); // safety: somehow past its due day unresolved
+        } else {
+          stillActive.push(c); // not due yet
+        }
       }
     }
 

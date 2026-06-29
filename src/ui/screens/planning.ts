@@ -736,16 +736,21 @@ function contractsContent(g: GameState): Child[] {
     blocks.push(h("div.shop", {}, active.map((c) => {
       const def = CONTRACT_BY_ID[c.defId];
       if (!def) return null;
-      const progress = Math.max(0, statValue(g, def.stat) - c.baseline);
-      const frac = def.target > 0 ? progress / def.target : 0;
-      const daysLeft = c.deadlineDay !== null ? Math.max(0, c.deadlineDay - g.day + 1) : def.days;
+      const info: Child[] = [h("strong", {}, def.name)];
+      if (def.kind === "challenge") {
+        const progress = Math.max(0, statValue(g, def.stat) - c.baseline);
+        const frac = def.target > 0 ? progress / def.target : 0;
+        const daysLeft = c.deadlineDay !== null ? Math.max(0, c.deadlineDay - g.day + 1) : def.days;
+        info.push(h("div.small.muted", {}, `${Math.floor(progress)} / ${def.target} · ${daysLeft}d left`));
+        info.push(bar(frac, "var(--c-mint, #51cf66)", `contract:${c.id}`));
+      } else {
+        const dueIn = c.deadlineDay !== null ? c.deadlineDay - g.day : def.leadDays;
+        const when = dueIn <= 0 ? "due today!" : `due in ${dueIn}d`;
+        info.push(h("div.small.muted", {}, `Cater ${def.cups} cups @ $${def.pricePerCup.toFixed(2)} · ${when}`));
+      }
       return h("div.shop__row", {}, [
         h("div.shop__icon", {}, def.icon),
-        h("div.shop__info", {}, [
-          h("strong", {}, def.name),
-          h("div.small.muted", {}, `${Math.floor(progress)} / ${def.target} · ${daysLeft}d left`),
-          bar(frac, "var(--c-mint, #51cf66)", `contract:${c.id}`),
-        ]),
+        h("div.shop__info", {}, info),
         h("div.shop__action", {}, pill(`💵${def.rewardCash} · ✦${def.rewardPrestige}`)),
       ]);
     }).filter(Boolean) as Child[]));
