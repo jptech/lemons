@@ -12,6 +12,7 @@ import { GOALS } from "../../data/goals";
 import {
   activeProducts,
   derive,
+  effectiveReputation,
   effectiveStaffBonus,
   equipmentStatus,
   idealRecipe,
@@ -29,6 +30,8 @@ import {
   productTaste,
   recipeQuality,
   researchStatus,
+  rivalShare,
+  rivalBuyoutCost,
   TUNING,
   type GameState,
   type ItemGrade,
@@ -89,6 +92,7 @@ export function renderPlanning(s: AppState): HTMLElement {
   return h("main.screen.planning", {}, [
     topbar(g),
     s.toast ? h("div.toast", {}, s.toast) : null,
+    rivalBanner(g),
     insightPanel(g),
     // Fixed columns (independent stacks) — cards never jump between columns, so
     // changing one card's height (e.g. a Grow tab) doesn't reflow the others.
@@ -129,6 +133,31 @@ function ladderActive(g: GameState): boolean {
     (g.prestige ?? 0) > 0 ||
     (g.ownedPerkIds?.length ?? 0) > 0
   );
+}
+
+/** A market-condition banner shown while a rival is splitting your crowd, with a
+ *  buy-out action. Undercutting price or growing reputation also wins share back. */
+function rivalBanner(g: GameState): Child {
+  const r = g.rival;
+  if (!r || !r.active) return null;
+  const rep = effectiveReputation(g);
+  const pid = primaryProductId(g);
+  const price = productStateOf(g, pid).recipe.pricePerCup;
+  const tol = sel.priceToleranceHint(g, pid);
+  const share = Math.round(rivalShare(r.strength, rep, price, tol) * 100);
+  const cost = rivalBuyoutCost(r);
+  return h("div.event-banner", { style: { display: "flex", alignItems: "center", gap: "10px" } }, [
+    h("span", { style: { fontSize: "1.5rem" } }, "🥊"),
+    h("div", { style: { flex: "1" } }, [
+      h("strong", {}, `${r.name} opened nearby`),
+      h("div.muted.small", {}, `Splitting your crowd — about −${share}% demand. Undercut on price or grow your brand to win them back.`),
+    ]),
+    button(`Buy out · ${moneyShort(cost)}`, () => actions.buyoutRival(), {
+      size: "sm",
+      variant: "sun",
+      disabled: cost > g.cash,
+    }),
+  ]);
 }
 
 function topbar(g: GameState): HTMLElement {

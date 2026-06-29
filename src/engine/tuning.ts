@@ -5,8 +5,23 @@
 import type { Condition, ItemId } from "./types";
 
 export const TUNING = {
-  SCHEMA_VERSION: 12,
+  SCHEMA_VERSION: 13,
   STARTING_CASH: 80,
+
+  // --- Rival competitor (Phase L5) ---
+  // A competing stand spawns at a day gate (in campaign AND endless), splits foot
+  // traffic by a price/reputation share model, grows as the player succeeds, and
+  // can be bought out for a temporary reprieve. Bounded so it pressures, not kills.
+  RIVAL_SPAWN_DAY: 14,
+  RIVAL_INIT_STRENGTH: 0.6,
+  RIVAL_MAX_STRENGTH: 1.8,
+  RIVAL_REP_TARGET: 1.0, // rival strength target rises with player rep (success attracts rivals)
+  RIVAL_ADAPT: 0.1, // how fast strength eases toward its target
+  RIVAL_WOBBLE: 0.05, // daily random drift in strength
+  RIVAL_BASE_PULL: 1.2, // the player's baseline competitiveness vs the rival
+  RIVAL_MAX_SHARE: 0.45, // most demand a rival can ever take
+  RIVAL_BUYOUT_BASE: 1500, // cash to buy them out (× (1 + strength))
+  RIVAL_COOLDOWN: 7, // days bought-out before they re-enter (weaker)
 
   // --- Brand equity / awareness reservoir (Phase L3) ---
   // A slow stock filled by marketing spend + delighted-customer word-of-mouth,

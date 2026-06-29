@@ -36,7 +36,9 @@ export {
   convertCashToPrestige,
   nextPrestigeCost,
   acceptContract,
+  buyoutRival,
 } from "./reducers";
+export { stepRival, rivalBuyoutCost } from "./rival";
 
 export {
   derive,
@@ -64,6 +66,7 @@ export {
   weatherDemandMult,
   weatherPriceMult,
   marketingShortTerm,
+  rivalShare,
 } from "./economy";
 
 export {

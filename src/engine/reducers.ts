@@ -11,6 +11,7 @@ import { freshProductState, primaryProductId, productStateOf } from "./menu";
 import { PRODUCT_BY_ID } from "../data/products";
 import { PERK_BY_ID, menuCapFor } from "../data/perks";
 import { CONTRACT_BY_ID, statValue } from "../data/contracts";
+import { rivalBuyoutCost } from "./rival";
 import type {
   GameState,
   InventoryLot,
@@ -401,6 +402,20 @@ export function convertCashToPrestige(state: GameState, n = 1): GameState {
   }
   if (bought === 0) return state;
   return { ...state, cash: round2(cash), prestige };
+}
+
+/** Pay to buy out the active rival — they leave for a cooldown, then re-enter
+ *  weaker. No-op if there's no active rival or you can't afford it. */
+export function buyoutRival(state: GameState): GameState {
+  const r = state.rival;
+  if (!r || !r.active) return state;
+  const cost = rivalBuyoutCost(r);
+  if (cost > state.cash) return state;
+  return {
+    ...state,
+    cash: round2(state.cash - cost),
+    rival: { ...r, active: false, cooldownDays: TUNING.RIVAL_COOLDOWN },
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -194,6 +194,21 @@ export interface DemandInputs {
   valueEff?: number;
   /** Brand-equity reservoir level (Phase L3). Defaults to 0 → neutral mult of 1. */
   awareness?: number;
+  /** Active rival strength (Phase L5). Defaults to 0 → no demand taken. */
+  rivalStrength?: number;
+}
+
+/**
+ * Fraction of would-be customers a rival captures (0 when no rival). Their pull
+ * vs the player's competitiveness — reputation and undercutting the price both
+ * win share back. Bounded so a rival pressures rather than kills.
+ */
+export function rivalShare(rivalStrength: number, playerRep: number, price: number, tolerance: number): number {
+  if (rivalStrength <= 0) return 0;
+  const priceEdge = clamp((tolerance - price) / (tolerance || 1), -0.4, 0.4); // cheaper than tolerance → pull
+  const playerPull = TUNING.RIVAL_BASE_PULL + playerRep / 100 + priceEdge;
+  const share = rivalStrength / (rivalStrength + Math.max(0.1, playerPull));
+  return clamp(share, 0, TUNING.RIVAL_MAX_SHARE);
 }
 
 /** Brand awareness → a top-of-funnel demand multiplier (capped). At awareness 0
@@ -236,6 +251,7 @@ export function expectedCustomers(d: DemandInputs): number {
     Math.max(0, buzzMult) *
     Math.max(0, valueMult) *
     awarenessMult(d.awareness) *
+    (1 - rivalShare(d.rivalStrength ?? 0, d.effectiveRep, d.price, d.tolerance)) *
     priceDemandMult(d.price, d.tolerance) *
     d.eventTrafficMult;
   // Regulars show up on top, only lightly weather-sensitive.

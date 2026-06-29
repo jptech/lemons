@@ -398,6 +398,21 @@ export interface ContractResolution {
 }
 
 // ---------------------------------------------------------------------------
+// Rival competitor (Phase L5)
+// ---------------------------------------------------------------------------
+/** A competing stand that splits foot traffic. Spawns at a day gate (in BOTH
+ *  modes), grows with the player's success, and can be bought out (temporarily). */
+export interface RivalState {
+  name: string;
+  /** Competitiveness 0..~1.8 — how much demand they can pull from you. */
+  strength: number;
+  /** Operating right now (false during a buyout cooldown). */
+  active: boolean;
+  /** Days left until they re-enter after a buyout. */
+  cooldownDays: number;
+}
+
+// ---------------------------------------------------------------------------
 // Brand equity (Phase L3)
 // ---------------------------------------------------------------------------
 /** Brand awareness: a slow reservoir that lifts demand past the rep ceiling and
@@ -458,6 +473,8 @@ export interface GameState {
   contracts: ContractsState;
   /** Brand equity: an awareness reservoir filled by marketing + word-of-mouth (Phase L3). */
   brand: BrandState;
+  /** A rival competitor that splits foot traffic once day-gated in (Phase L5). */
+  rival: RivalState | null;
 
   stats: Stats;
   history: DayResult[];

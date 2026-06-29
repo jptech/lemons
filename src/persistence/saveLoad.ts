@@ -130,6 +130,12 @@ const MIGRATIONS: Record<number, (g: any) => GameState> = {
       resting: typeof s.resting === "boolean" ? s.resting : false,
     })),
   }),
+  // 12 -> 13: add the rival slot (none yet). Neutral — it spawns at the day gate
+  // on a later settlement; rivalStrength 0 is a 1x demand mult until then.
+  12: (g) => ({
+    ...g,
+    rival: g.rival ?? null,
+  }),
 };
 
 function migrate(game: GameState, fromVersion: number): GameState {

@@ -67,6 +67,7 @@ export function newGame(seed: number, mode: GameMode = "campaign"): GameState {
     ownedPerkIds: [],
     contracts: { lastDealtWeek: -1, offers: [], active: [] },
     brand: { awareness: 0 },
+    rival: null,
     stats: emptyStats(),
     history: [],
     gameOver: false,

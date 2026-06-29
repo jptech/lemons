@@ -37,6 +37,7 @@ import {
 import { nextCondition, makeWeatherDay } from "./weatherGen";
 import { rollEvent } from "./eventRoll";
 import { gradeQualityBonus, stepSupplierPrices } from "./supplier";
+import { stepRival } from "./rival";
 import { activeProducts, primaryProductId, productTaste } from "./menu";
 import { PRODUCT_BY_ID } from "../data/products";
 import { TUNING } from "./tuning";
@@ -305,6 +306,7 @@ export class DaySim {
       regularsPool: state.regularsPool,
       eventTrafficMult: event?.effect.trafficMult ?? 1,
       awareness: state.brand?.awareness ?? 0,
+      rivalStrength: state.rival?.active ? state.rival.strength : 0,
     });
     // "Market mood": a seeded per-day demand swing the player can't perfectly
     // predict. Its spread shrinks as forecast confidence rises (research +
@@ -1109,6 +1111,9 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
   const nextEventId = rollEvent(rng, prev.day + 1);
   // Supplier prices drift overnight (one gaussian draw per item, fixed order).
   const supplier = stepSupplierPrices(prev.supplier, rng);
+  // Rival competitor — the LAST rng step (spawns at the day gate in any mode;
+  // draws nothing before then, one value/day after, never conditional on mode).
+  const nextRival = stepRival(prev.rival ?? null, prev.day + 1, prev.reputationGlobal, rng);
 
   // Staff earn flat XP for each day WORKED (deterministic — no RNG); re-level.
   // Fatigue rises with work and recovers with rest. The rest plan resets daily.
@@ -1145,6 +1150,7 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
     locationRepFacets: { ...prev.locationRepFacets, [prev.currentLocationId]: newLF },
     regularsPool: regulars,
     brand: { awareness: stepAwareness(prev.brand?.awareness ?? 0, d.delighted, prev.marketingSpend) },
+    rival: nextRival,
     inventory: nextInv,
     products: nextProducts,
     weatherToday,
