@@ -394,6 +394,15 @@ export interface ContractResolution {
 }
 
 // ---------------------------------------------------------------------------
+// Brand equity (Phase L3)
+// ---------------------------------------------------------------------------
+/** Brand awareness: a slow reservoir that lifts demand past the rep ceiling and
+ *  fades if you stop feeding it (marketing spend + delighted-customer word-of-mouth). */
+export interface BrandState {
+  awareness: number;
+}
+
+// ---------------------------------------------------------------------------
 // Top-level game state (the whole save file, minus transient sim)
 // ---------------------------------------------------------------------------
 export type GameMode = "campaign" | "sandbox";
@@ -443,6 +452,8 @@ export interface GameState {
   ownedPerkIds: string[];
   /** Weekly contracts: offered + accepted objectives (Phase L2). */
   contracts: ContractsState;
+  /** Brand equity: an awareness reservoir filled by marketing + word-of-mouth (Phase L3). */
+  brand: BrandState;
 
   stats: Stats;
   history: DayResult[];

@@ -580,7 +580,28 @@ function marketingPanel(g: GameState): HTMLElement {
         ),
       ),
     ),
+    awarenessGauge(g),
   );
+}
+
+/** Brand-awareness reservoir gauge — the slow stock marketing + delighted
+ *  customers build, that lifts demand past the reputation ceiling and fades. */
+function awarenessGauge(g: GameState): HTMLElement {
+  const aware = g.brand?.awareness ?? 0;
+  const frac = aware / TUNING.AWARENESS_MAX;
+  const lift = Math.round((Math.min(TUNING.AWARENESS_CAP_MULT, 1 + TUNING.AWARENESS_GAIN * aware) - 1) * 100);
+  const read =
+    aware < 4 ? "Build it with marketing & happy customers — it lifts demand and fades if you stop."
+    : lift >= Math.round((TUNING.AWARENESS_CAP_MULT - 1) * 100) - 1 ? "Maxed — your brand is pulling its biggest crowd."
+    : "Compounding from delighted days — keep them happy to grow it.";
+  return h("div.awareness", { style: { marginTop: "8px" } }, [
+    h("div.row", { style: { display: "flex", justifyContent: "space-between" } }, [
+      h("strong.small", {}, "📣 Brand awareness"),
+      h("span.small.muted", {}, `+${lift}% demand`),
+    ]),
+    bar(frac, "var(--c-grape, #9775fa)", "brand:awareness"),
+    h("p.muted.small", { style: { marginTop: "4px" } }, read),
+  ]);
 }
 
 // ---------------------------------------------------------------------------

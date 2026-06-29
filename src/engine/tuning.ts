@@ -5,8 +5,22 @@
 import type { Condition, ItemId } from "./types";
 
 export const TUNING = {
-  SCHEMA_VERSION: 10,
+  SCHEMA_VERSION: 11,
   STARTING_CASH: 80,
+
+  // --- Brand equity / awareness reservoir (Phase L3) ---
+  // A slow stock filled by marketing spend + delighted-customer word-of-mouth,
+  // decaying daily. It multiplies top-of-funnel demand and can push PAST the
+  // reputation ceiling — but the WoM term is flow-fed (∝ yesterday's delighted
+  // count, which is itself demand-capped), so it grows then asymptotes rather
+  // than running away (proven in scripts/awarenessProbe.ts).
+  AWARENESS_GAIN: 0.018, // demand multiplier added per awareness point
+  AWARENESS_CAP_MULT: 2.2, // hard cap on the awareness demand multiplier (safety net)
+  AWARENESS_MAX: 80, // reservoir ceiling (a bit past mult saturation)
+  AWARENESS_DECAY: 0.05, // fraction of the reservoir that leaks per day
+  AWARENESS_WOM: 0.06, // awareness gained per delighted customer (the organic term)
+  AWARENESS_MKT_MAX: 3.0, // max awareness/day from marketing spend (saturating)
+  AWARENESS_MKT_SCALE: 60, // marketing spend scale for the fill curve
 
   // --- Late-game: Tycoon ladder & Prestige (Phase L1) ---
   BASE_MENU_CAP: 2, // active products before menu-slot perks

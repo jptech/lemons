@@ -29,6 +29,7 @@ import {
   priceTolerance,
   recipeQuality,
   starsFromSatisfaction,
+  stepAwareness,
   tipAmount,
   waitScore,
 } from "./economy";
@@ -302,6 +303,7 @@ export class DaySim {
       tolerance: this.tolerance,
       regularsPool: state.regularsPool,
       eventTrafficMult: event?.effect.trafficMult ?? 1,
+      awareness: state.brand?.awareness ?? 0,
     });
     // "Market mood": a seeded per-day demand swing the player can't perfectly
     // predict. Its spread shrinks as forecast confidence rises (research +
@@ -1129,6 +1131,7 @@ function settle(sim: DaySim): { state: GameState; result: DayResult } {
     repFacets: newGF,
     locationRepFacets: { ...prev.locationRepFacets, [prev.currentLocationId]: newLF },
     regularsPool: regulars,
+    brand: { awareness: stepAwareness(prev.brand?.awareness ?? 0, d.delighted, prev.marketingSpend) },
     inventory: nextInv,
     products: nextProducts,
     weatherToday,

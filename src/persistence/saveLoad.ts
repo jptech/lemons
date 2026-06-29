@@ -114,6 +114,13 @@ const MIGRATIONS: Record<number, (g: any) => GameState> = {
     ...g,
     contracts: g.contracts ?? { lastDealtWeek: -1, offers: [], active: [] },
   }),
+  // 10 -> 11: add the brand-awareness reservoir at 0. Neutral — awareness 0 is a
+  // demand multiplier of exactly 1, so a loaded save plays identically, then the
+  // reservoir builds from marketing + word-of-mouth (new late-game headroom).
+  10: (g) => ({
+    ...g,
+    brand: g.brand ?? { awareness: 0 },
+  }),
 };
 
 function migrate(game: GameState, fromVersion: number): GameState {
