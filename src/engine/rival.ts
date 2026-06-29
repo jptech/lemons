@@ -54,8 +54,3 @@ export function rivalBuyoutCost(rival: RivalState | null): number {
   if (!rival || !rival.active) return 0;
   return Math.round(TUNING.RIVAL_BUYOUT_BASE * (1 + rival.strength));
 }
-
-/** A throwaway rng for tests/headless callers that need to step a rival. */
-export function rngFrom(seed: number): Rng {
-  return new Rng(seed);
-}
