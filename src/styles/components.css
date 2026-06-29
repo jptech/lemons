@@ -891,6 +891,53 @@
 .xpbar .small {
   white-space: nowrap;
 }
+
+/* ---- Hired-crew card (Staff tab) ---- */
+.crew {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3) 0;
+  border-top: 1px dashed var(--c-line);
+}
+.crew:first-child {
+  border-top: none;
+}
+.crew--resting {
+  opacity: 0.66;
+}
+.crew__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.crew__avatar {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+.crew__name {
+  flex: 1;
+  min-width: 0;
+}
+.crew__wage {
+  white-space: nowrap;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--c-ink-soft);
+}
+.crew .xpbar {
+  margin-top: 2px;
+}
+.crew__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  margin-top: var(--sp-1);
+}
+/* Separate the destructive action from the rest when the row fits on one line. */
+.crew__actions .btn:last-child {
+  margin-left: auto;
+}
 .shop__row--locked {
   opacity: 0.9;
 }

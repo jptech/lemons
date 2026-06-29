@@ -891,15 +891,15 @@ function staffBenefitLeveled(st: GameState["staff"][number]): string {
   return parts.join(" · ");
 }
 
-// A small XP/level progress bar for a hired staffer.
+// A small XP/level progress bar for a hired staffer (level shown by the header chip).
 function staffXpBar(st: GameState["staff"][number]): Child {
   const next = nextLevelXp(st.level);
-  if (next === null) return h("div.small.muted", {}, "✨ Fully trained");
+  if (next === null) return h("div.xpbar", {}, [h("span.small.muted", {}, "✨ Fully trained")]);
   const floor = TUNING.STAFF_XP_FOR_LEVEL[st.level] ?? 0;
   const frac = (st.xp - floor) / (next - floor);
   return h("div.xpbar", {}, [
     bar(frac, "var(--c-grape, #9775fa)"),
-    h("span.small.muted", {}, `Lv.${st.level} · ${Math.round(st.xp)}/${next} XP`),
+    h("span.small.muted", {}, `${Math.round(st.xp - floor)}/${next - floor} XP`),
   ]);
 }
 
@@ -917,41 +917,47 @@ function fatigueSpeedLoss(fatigue: number): number {
   return TUNING.FATIGUE_SPEED_PENALTY * (Math.max(0, Math.min(100, fatigue)) / 100);
 }
 
+// A hired staffer's card: identity + wage, perks, XP + fatigue meters, and a
+// clean wrapping row of actions (role toggle / rest / train / let go).
+function crewCard(g: GameState, st: GameState["staff"][number]): HTMLElement {
+  const canAffordTrain = g.cash >= TUNING.STAFF_TRAIN_COST;
+  const maxed = st.level >= TUNING.STAFF_MAX_LEVEL;
+  return h("div.crew" + (st.resting ? ".crew--resting" : ""), {}, [
+    h("div.crew__head", {}, [
+      h("span.crew__avatar", {}, st.icon),
+      h("strong.crew__name", {}, [st.name, h("span.lvl", {}, `Lv.${st.level}`)]),
+      h("span.crew__wage", {}, `${moneyWhole(st.wage)}/day`),
+    ]),
+    h("div.small.muted", {}, staffBenefitLeveled(st)),
+    staffXpBar(st),
+    staffFatigueBar(st),
+    h("div.crew__actions", {}, [
+      button(st.role === "MAKE" ? "🫙 Mixing" : "🥤 Serving", () => actions.setStaffRole(st.id, st.role === "MAKE" ? "SERVE" : "MAKE"), {
+        size: "sm",
+        variant: "ghost",
+      }),
+      button(st.resting ? "💤 Resting" : "Rest", () => actions.setStaffResting(st.id, !st.resting), {
+        size: "sm",
+        variant: st.resting ? "sky" : "ghost",
+      }),
+      maxed
+        ? null
+        : button(`Train ${moneyWhole(TUNING.STAFF_TRAIN_COST)}`, () => actions.trainStaff(st.id), {
+            size: "sm",
+            variant: "sky",
+            disabled: !canAffordTrain,
+          }),
+      button("Let go", () => actions.fireStaff(st.id), { size: "sm", variant: "ghost" }),
+    ]),
+  ]);
+}
+
 // ---------------------------------------------------------------------------
 function staffContent(g: GameState): Child[] {
   const full = g.staff.length >= TUNING.STAFF_CAP;
-  const canAffordTrain = g.cash >= TUNING.STAFF_TRAIN_COST;
   return [
-    h("p.muted.small", {}, `${g.staff.length}/${TUNING.STAFF_CAP} hired. Each adds a serving station and gains experience daily. They tire as they work and slow down — rest one to recover (half wage, no station that day).`),
-    ...g.staff.map((st) =>
-      h("div.shop__row", {}, [
-        h("div.shop__icon", {}, st.icon),
-        h("div.shop__info", {}, [
-          h("strong", {}, [st.name, h("span.lvl", {}, `Lv.${st.level}`), h("span.lvl", {}, `${moneyWhole(st.wage)}/day`)]),
-          h("div.small.muted", {}, staffBenefitLeveled(st)),
-          staffXpBar(st),
-          staffFatigueBar(st),
-        ]),
-        h("div.shop__action.shop__action--group", {}, [
-          button(st.resting ? "💤 Resting" : "Rest", () => actions.setStaffResting(st.id, !st.resting), {
-            size: "sm",
-            variant: st.resting ? "sky" : "ghost",
-          }),
-          button(st.role === "MAKE" ? "🫙 Mixing" : "🥤 Serving", () => actions.setStaffRole(st.id, st.role === "MAKE" ? "SERVE" : "MAKE"), {
-            size: "sm",
-            variant: "ghost",
-          }),
-          st.level < TUNING.STAFF_MAX_LEVEL
-            ? button(`Train ${moneyWhole(TUNING.STAFF_TRAIN_COST)}`, () => actions.trainStaff(st.id), {
-                size: "sm",
-                variant: "sky",
-                disabled: !canAffordTrain,
-              })
-            : null,
-          button("Let go", () => actions.fireStaff(st.id), { size: "sm", variant: "ghost" }),
-        ]),
-      ]),
-    ),
+    h("p.muted.small", {}, `${g.staff.length}/${TUNING.STAFF_CAP} hired. Each adds a station and trains up daily. Working tires them (slower service) — rest one to recover.`),
+    ...g.staff.map((st) => crewCard(g, st)),
     full
       ? h("p.muted.small", {}, "Your crew is full.")
       : h(
