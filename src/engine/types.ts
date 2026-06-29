@@ -183,6 +183,10 @@ export interface Staff {
   xp: number;
   /** Derived from xp via TUNING.STAFF_XP_FOR_LEVEL; adds to the speed bonuses. */
   level: number;
+  /** Fatigue 0..100 (Phase L4): rises with work, lowers a tired station's speed. */
+  fatigue: number;
+  /** Planned to rest the upcoming day (recovers fatigue; no station; half wage). */
+  resting: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -362,6 +366,59 @@ export interface DayResult {
   metrics?: DayMetrics;
   newGoals: string[];
   newAchievements: string[];
+  /** Weekly contracts that completed or expired today (absent on old saves). */
+  contractsResolved?: ContractResolution[];
+}
+
+// ---------------------------------------------------------------------------
+// Weekly contracts (Phase L2) — opt-in, deadline-bound objectives dealt 2/week
+// ---------------------------------------------------------------------------
+/** A dealt or accepted contract instance (the def lives in data/contracts.ts). */
+export interface ContractInstance {
+  id: string; // unique per offer, e.g. `${defId}__w${week}`
+  defId: string;
+  offeredDay: number;
+  acceptedDay: number | null;
+  deadlineDay: number | null; // set on accept (offeredDay-relative)
+  baseline: number; // tracked cumulative stat snapshotted at accept (0 until then)
+}
+
+export interface ContractsState {
+  /** Highest week index already dealt (so a reload doesn't re-deal). -1 = none. */
+  lastDealtWeek: number;
+  offers: ContractInstance[]; // un-accepted, expire when the next week is dealt
+  active: ContractInstance[]; // accepted, persist until completed or past deadline
+}
+
+export interface ContractResolution {
+  name: string;
+  status: "done" | "expired";
+  rewardCash: number;
+  rewardPrestige: number;
+}
+
+// ---------------------------------------------------------------------------
+// Rival competitor (Phase L5)
+// ---------------------------------------------------------------------------
+/** A competing stand that splits foot traffic. Spawns at a day gate (in BOTH
+ *  modes), grows with the player's success, and can be bought out (temporarily). */
+export interface RivalState {
+  name: string;
+  /** Competitiveness 0..~1.8 — how much demand they can pull from you. */
+  strength: number;
+  /** Operating right now (false during a buyout cooldown). */
+  active: boolean;
+  /** Days left until they re-enter after a buyout. */
+  cooldownDays: number;
+}
+
+// ---------------------------------------------------------------------------
+// Brand equity (Phase L3)
+// ---------------------------------------------------------------------------
+/** Brand awareness: a slow reservoir that lifts demand past the rep ceiling and
+ *  fades if you stop feeding it (marketing spend + delighted-customer word-of-mouth). */
+export interface BrandState {
+  awareness: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -404,6 +461,20 @@ export interface GameState {
 
   completedGoalIds: string[];
   unlockedAchievementIds: string[];
+
+  // --- Late-game meta-progression (Phase L1) ---
+  /** Next endless-ladder rung to evaluate = count of rungs already cleared. */
+  ladderRung: number;
+  /** Prestige currency: earned from ladder rungs / cash conversion, spent on perks. */
+  prestige: number;
+  /** Permanent perks bought with prestige (each unlocks a recurring decision). */
+  ownedPerkIds: string[];
+  /** Weekly contracts: offered + accepted objectives (Phase L2). */
+  contracts: ContractsState;
+  /** Brand equity: an awareness reservoir filled by marketing + word-of-mouth (Phase L3). */
+  brand: BrandState;
+  /** A rival competitor that splits foot traffic once day-gated in (Phase L5). */
+  rival: RivalState | null;
 
   stats: Stats;
   history: DayResult[];

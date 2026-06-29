@@ -21,6 +21,7 @@ export {
   hireStaff,
   fireStaff,
   setStaffRole,
+  setStaffResting,
   trainStaff,
   startResearch,
   researchStatus,
@@ -29,7 +30,15 @@ export {
   unlockLocation,
   takeLoan,
   repayLoan,
+  menuCap,
+  buyPerk,
+  perkStatus,
+  convertCashToPrestige,
+  nextPrestigeCost,
+  acceptContract,
+  buyoutRival,
 } from "./reducers";
+export { stepRival, rivalBuyoutCost } from "./rival";
 
 export {
   derive,
@@ -46,7 +55,7 @@ export {
   nextLevelXp,
   effectiveStaffBonus,
 } from "./derive";
-export type { EquipmentStatus, ResearchStatus } from "./reducers";
+export type { EquipmentStatus, ResearchStatus, PerkStatus } from "./reducers";
 
 export {
   expectedCustomers,
@@ -57,6 +66,7 @@ export {
   weatherDemandMult,
   weatherPriceMult,
   marketingShortTerm,
+  rivalShare,
 } from "./economy";
 
 export {

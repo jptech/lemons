@@ -12,6 +12,7 @@ import { GOALS } from "../../data/goals";
 import {
   activeProducts,
   derive,
+  effectiveReputation,
   effectiveStaffBonus,
   equipmentStatus,
   idealRecipe,
@@ -19,13 +20,18 @@ import {
   itemHasPremium,
   inventoryQty,
   maxBuyable,
+  menuCap,
   nextBulkTier,
   nextLevelXp,
+  nextPrestigeCost,
+  perkStatus,
   primaryProductId,
   productStateOf,
   productTaste,
   recipeQuality,
   researchStatus,
+  rivalShare,
+  rivalBuyoutCost,
   TUNING,
   type GameState,
   type ItemGrade,
@@ -34,6 +40,8 @@ import {
   type Recipe,
 } from "../../engine";
 import { PRODUCTS, PRODUCT_BY_ID } from "../../data/products";
+import { PERKS } from "../../data/perks";
+import { CONTRACT_BY_ID, statValue, contractObjective } from "../../data/contracts";
 import { h, type Child } from "../dom";
 import { bar, button, panel, pill, slider, statBlock } from "../components";
 import { flashClass } from "../anim";
@@ -84,6 +92,7 @@ export function renderPlanning(s: AppState): HTMLElement {
   return h("main.screen.planning", {}, [
     topbar(g),
     s.toast ? h("div.toast", {}, s.toast) : null,
+    rivalBanner(g),
     insightPanel(g),
     // Fixed columns (independent stacks) — cards never jump between columns, so
     // changing one card's height (e.g. a Grow tab) doesn't reflow the others.
@@ -115,6 +124,41 @@ function optionBtn(
 
 // ---------------------------------------------------------------------------
 let lastCashSeen: number | null = null;
+
+/** The late-game meta-layer (ladder + prestige + perks) is surfaced once the
+ *  player has cleared a few base goals, or has already engaged with it. */
+function ladderActive(g: GameState): boolean {
+  return (
+    g.completedGoalIds.length >= TUNING.LADDER_ACTIVATE_GOALS ||
+    (g.prestige ?? 0) > 0 ||
+    (g.ownedPerkIds?.length ?? 0) > 0
+  );
+}
+
+/** A market-condition banner shown while a rival is splitting your crowd, with a
+ *  buy-out action. Undercutting price or growing reputation also wins share back. */
+function rivalBanner(g: GameState): Child {
+  const r = g.rival;
+  if (!r || !r.active) return null;
+  const rep = effectiveReputation(g);
+  const pid = primaryProductId(g);
+  const price = productStateOf(g, pid).recipe.pricePerCup;
+  const tol = sel.priceToleranceHint(g, pid);
+  const share = Math.round(rivalShare(r.strength, rep, price, tol) * 100);
+  const cost = rivalBuyoutCost(r);
+  return h("div.event-banner", { style: { display: "flex", alignItems: "center", gap: "10px" } }, [
+    h("span", { style: { fontSize: "1.5rem" } }, "🥊"),
+    h("div", { style: { flex: "1" } }, [
+      h("strong", {}, `${r.name} opened nearby`),
+      h("div.muted.small", {}, `Splitting your crowd — about −${share}% demand. Undercut on price or grow your brand to win them back.`),
+    ]),
+    button(`Buy out · ${moneyShort(cost)}`, () => actions.buyoutRival(), {
+      size: "sm",
+      variant: "sun",
+      disabled: cost > g.cash,
+    }),
+  ]);
+}
 
 function topbar(g: GameState): HTMLElement {
   const loc = sel.currentLocation(g);
@@ -148,6 +192,12 @@ function topbar(g: GameState): HTMLElement {
         h("div.stat__label", {}, "Reputation"),
         h("div.stat__value.num", {}, `${Math.round(g.reputationGlobal)}`),
       ]),
+      ladderActive(g)
+        ? h("div.stat", { title: "Prestige — earn it from the Tycoon ladder, spend it on perks" }, [
+            h("div.stat__label", {}, "Prestige"),
+            h("div.stat__value.num", {}, `✦ ${Math.round(g.prestige ?? 0)}`),
+          ])
+        : null,
     ]),
     h("div.topbar__menu", {}, [
       g.mode === "campaign" ? goalChip(g) : null,
@@ -348,13 +398,14 @@ function productEditor(g: GameState, productId: ProductId): HTMLElement {
   ]);
 }
 
-/** Add/remove the optional products (capped at 2 active in Phase 1). */
+/** Add/remove the optional products (cap grows with menu-slot perks). */
 function menuManager(g: GameState): Child {
   const offMenu = PRODUCTS.filter((p) => !g.menu.includes(p.id));
   if (!offMenu.length) return null;
-  const atCap = g.menu.length >= 2;
+  const cap = menuCap(g);
+  const atCap = g.menu.length >= cap;
   return h("div.menu-manager", {}, [
-    h("p.muted.small", {}, atCap ? "Menu full (2). Remove a drink to swap." : "Add a second drink to widen your appeal — it splits your crew's time, so it's a trade-off."),
+    h("p.muted.small", {}, atCap ? `Menu full (${cap}). Remove a drink to swap, or unlock a menu slot in Perks.` : "Add another drink to widen your appeal — it splits your crew's time, so it's a trade-off."),
     ...offMenu.map((p) =>
       h("div.menu-add" + (atCap ? ".menu-add--off" : ""), {}, [
         h("div.menu-add__info", {}, [
@@ -549,7 +600,7 @@ function marketingPanel(g: GameState): HTMLElement {
     h(
       "div.opt-list",
       {},
-      MARKETING_TIERS.map((t) =>
+      MARKETING_TIERS.filter((t) => !t.unlockPerk || g.ownedPerkIds?.includes(t.unlockPerk)).map((t) =>
         optionBtn(
           `${t.icon} ${t.name}`,
           t.spend > 0 ? moneyWhole(t.spend) : "free",
@@ -558,13 +609,34 @@ function marketingPanel(g: GameState): HTMLElement {
         ),
       ),
     ),
+    awarenessGauge(g),
   );
+}
+
+/** Brand-awareness reservoir gauge — the slow stock marketing + delighted
+ *  customers build, that lifts demand past the reputation ceiling and fades. */
+function awarenessGauge(g: GameState): HTMLElement {
+  const aware = g.brand?.awareness ?? 0;
+  const frac = aware / TUNING.AWARENESS_MAX;
+  const lift = Math.round((Math.min(TUNING.AWARENESS_CAP_MULT, 1 + TUNING.AWARENESS_GAIN * aware) - 1) * 100);
+  const read =
+    aware < 4 ? "Build it with marketing & happy customers — it lifts demand and fades if you stop."
+    : lift >= Math.round((TUNING.AWARENESS_CAP_MULT - 1) * 100) - 1 ? "Maxed — your brand is pulling its biggest crowd."
+    : "Compounding from delighted days — keep them happy to grow it.";
+  return h("div.awareness", { style: { marginTop: "8px" } }, [
+    h("div.row", { style: { display: "flex", justifyContent: "space-between" } }, [
+      h("strong.small", {}, "📣 Brand awareness"),
+      h("span.small.muted", {}, `+${lift}% demand`),
+    ]),
+    bar(frac, "var(--c-grape, #9775fa)", "brand:awareness"),
+    h("p.muted.small", { style: { marginTop: "4px" } }, read),
+  ]);
 }
 
 // ---------------------------------------------------------------------------
 // "Grow" — a tabbed panel grouping the occasional invest actions (equipment,
 // staff, locations) so they don't sprawl across the dashboard.
-type GrowTab = "equipment" | "staff" | "research" | "locations";
+type GrowTab = "equipment" | "staff" | "research" | "locations" | "perks" | "contracts";
 let growTab: GrowTab = "equipment";
 let lastGrowTab: GrowTab = growTab;
 
@@ -582,7 +654,14 @@ function growActionCounts(g: GameState): Record<GrowTab, number> {
     ? 0
     : RESEARCH_NODES.filter((n) => researchStatus(g, n.id).kind === "buyable").length;
   const locations = LOCATIONS.filter((l) => !g.unlockedLocationIds.includes(l.id) && l.unlockCost <= g.cash).length;
-  return { equipment, staff, research, locations };
+  const perks = PERKS.filter((p) => perkStatus(g, p.id)?.kind === "buyable").length;
+  const contracts = g.contracts.active.length < TUNING.CONTRACT_ACTIVE_CAP ? g.contracts.offers.length : 0;
+  return { equipment, staff, research, locations, perks, contracts };
+}
+
+/** Contracts surface once they're available (or any are in flight). */
+function contractsVisible(g: GameState): boolean {
+  return g.day >= TUNING.CONTRACTS_UNLOCK_DAY || g.contracts.active.length > 0 || g.contracts.offers.length > 0;
 }
 
 function growPanel(g: GameState): HTMLElement {
@@ -591,7 +670,11 @@ function growPanel(g: GameState): HTMLElement {
     { id: "staff", icon: "🧑‍🍳", label: "Staff" },
     { id: "research", icon: "🔬", label: "Research" },
     { id: "locations", icon: "📍", label: "Locations" },
+    ...(contractsVisible(g) ? [{ id: "contracts" as GrowTab, icon: "📋", label: "Contracts" }] : []),
+    ...(ladderActive(g) ? [{ id: "perks" as GrowTab, icon: "✦", label: "Perks" }] : []),
   ];
+  // If the active tab vanished (perks/contracts not yet unlocked), fall back.
+  if (!tabs.some((t) => t.id === growTab)) growTab = "equipment";
   const counts = growActionCounts(g);
   const content =
     growTab === "equipment"
@@ -600,7 +683,11 @@ function growPanel(g: GameState): HTMLElement {
         ? staffContent(g)
         : growTab === "research"
           ? researchContent(g)
-          : locationContent(g);
+          : growTab === "perks"
+            ? perksContent(g)
+            : growTab === "contracts"
+              ? contractsContent(g)
+              : locationContent(g);
   // Fade the body in only when the tab actually changed (not on every re-render).
   const switched = growTab !== lastGrowTab;
   lastGrowTab = growTab;
@@ -628,6 +715,116 @@ function growPanel(g: GameState): HTMLElement {
     ),
     h("div.grow__body" + (switched ? ".tab-fade" : ""), {}, content),
   ]);
+}
+
+function perksContent(g: GameState): Child[] {
+  const prestige = Math.round(g.prestige ?? 0);
+  const convCost = nextPrestigeCost(g);
+  const canConvert = g.cash >= convCost;
+  return [
+    h("p.muted.small", {}, "Spend Prestige (earned from the Tycoon ladder) on permanent perks that open new decisions."),
+    h("div.perk-bank.statblock", {}, [
+      h("strong", {}, `✦ ${prestige} Prestige`),
+      h("div", { style: { display: "flex", gap: "6px" } }, [
+        button(`+1 · ${moneyShort(convCost)}`, () => actions.convertCashToPrestige(1), {
+          size: "sm",
+          variant: "sky",
+          disabled: !canConvert,
+        }),
+        button("+5", () => actions.convertCashToPrestige(5), {
+          size: "sm",
+          variant: "sky",
+          disabled: !canConvert,
+        }),
+      ]),
+    ]),
+    h("p.muted.small", {}, "Convert spare cash into Prestige — the cost rises as you bank more."),
+    h(
+      "div.shop",
+      {},
+      PERKS.map((p) => {
+        const st = perkStatus(g, p.id);
+        let action: Child;
+        let rowClass = "";
+        let lockText: string | null = null;
+        if (st?.kind === "owned") {
+          action = pill("✓ owned");
+          rowClass = "shop__row--owned";
+        } else if (st?.kind === "needsPrev") {
+          action = h("span.pill.pill--locked", {}, "🔒");
+          rowClass = "shop__row--locked";
+          lockText = `Needs ${st.prevName}`;
+        } else {
+          action = button(`✦ ${p.cost}`, () => {
+            flashOnNextRender(`perk:${p.id}`);
+            actions.buyPerk(p.id);
+          }, { size: "sm", disabled: st?.kind !== "buyable" });
+        }
+        return consumeFlash(`perk:${p.id}`, h("div.shop__row", { class: rowClass }, [
+          h("div.shop__icon", {}, p.icon),
+          h("div.shop__info", {}, [
+            h("strong", {}, p.name),
+            h("div.small.muted", {}, p.blurb),
+            lockText ? h("div.shop__lock", {}, `🔒 ${lockText}`) : null,
+          ]),
+          h("div.shop__action", {}, action),
+        ]));
+      }),
+    ),
+  ];
+}
+
+function contractsContent(g: GameState): Child[] {
+  const cap = TUNING.CONTRACT_ACTIVE_CAP;
+  const { active, offers } = g.contracts;
+  const slotsFull = active.length >= cap;
+  const blocks: Child[] = [
+    h("p.muted.small", {}, `Weekly jobs — take up to ${cap} at once. Hit the target before the deadline for cash + Prestige.`),
+  ];
+
+  if (active.length) {
+    blocks.push(h("div.shop", {}, active.map((c) => {
+      const def = CONTRACT_BY_ID[c.defId];
+      if (!def) return null;
+      const info: Child[] = [h("strong", {}, def.name)];
+      if (def.kind === "challenge") {
+        const progress = Math.max(0, statValue(g, def.stat) - c.baseline);
+        const frac = def.target > 0 ? progress / def.target : 0;
+        const daysLeft = c.deadlineDay !== null ? Math.max(0, c.deadlineDay - g.day + 1) : def.days;
+        info.push(h("div.small.muted", {}, `${Math.floor(progress)} / ${def.target} · ${daysLeft}d left`));
+        info.push(bar(frac, "var(--c-mint, #51cf66)", `contract:${c.id}`));
+      } else {
+        const dueIn = c.deadlineDay !== null ? c.deadlineDay - g.day : def.leadDays;
+        const when = dueIn <= 0 ? "due today!" : `due in ${dueIn}d`;
+        info.push(h("div.small.muted", {}, `Cater ${def.cups} cups @ $${def.pricePerCup.toFixed(2)} · ${when}`));
+      }
+      return h("div.shop__row", {}, [
+        h("div.shop__icon", {}, def.icon),
+        h("div.shop__info", {}, info),
+        h("div.shop__action", {}, pill(`💵${def.rewardCash} · ✦${def.rewardPrestige}`)),
+      ]);
+    }).filter(Boolean) as Child[]));
+  }
+
+  if (offers.length) {
+    blocks.push(h("p.muted.small", {}, slotsFull ? "Slots full — finish or wait out an active job to take a new one." : "This week's offers:"));
+    blocks.push(h("div.shop", {}, offers.map((o) => {
+      const def = CONTRACT_BY_ID[o.defId];
+      if (!def) return null;
+      return h("div.shop__row", {}, [
+        h("div.shop__icon", {}, def.icon),
+        h("div.shop__info", {}, [
+          h("strong", {}, def.name),
+          h("div.small.muted", {}, `${contractObjective(def)} → 💵${def.rewardCash} + ✦${def.rewardPrestige}`),
+        ]),
+        h("div.shop__action", {}, button("Accept", () => actions.acceptContract(o.id), { size: "sm", variant: "sky", disabled: slotsFull })),
+      ]);
+    }).filter(Boolean) as Child[]));
+  } else if (!active.length) {
+    blocks.push(h("p.muted.small", {}, "No offers right now — new jobs arrive each week."));
+  }
+
+  return blocks;
 }
 
 function equipmentContent(g: GameState): Child[] {
@@ -694,48 +891,73 @@ function staffBenefitLeveled(st: GameState["staff"][number]): string {
   return parts.join(" · ");
 }
 
-// A small XP/level progress bar for a hired staffer.
+// A small XP/level progress bar for a hired staffer (level shown by the header chip).
 function staffXpBar(st: GameState["staff"][number]): Child {
   const next = nextLevelXp(st.level);
-  if (next === null) return h("div.small.muted", {}, "✨ Fully trained");
+  if (next === null) return h("div.xpbar", {}, [h("span.small.muted", {}, "✨ Fully trained")]);
   const floor = TUNING.STAFF_XP_FOR_LEVEL[st.level] ?? 0;
   const frac = (st.xp - floor) / (next - floor);
   return h("div.xpbar", {}, [
     bar(frac, "var(--c-grape, #9775fa)"),
-    h("span.small.muted", {}, `Lv.${st.level} · ${Math.round(st.xp)}/${next} XP`),
+    h("span.small.muted", {}, `${Math.round(st.xp - floor)}/${next - floor} XP`),
+  ]);
+}
+
+// A fatigue bar for a hired staffer (only once they've tired a little).
+function staffFatigueBar(st: GameState["staff"][number]): Child {
+  const f = st.fatigue ?? 0;
+  if (f < 1 && !st.resting) return null;
+  const color = f > 66 ? "var(--c-coral, #ff6b6b)" : f > 33 ? "var(--c-sun, #ffd43b)" : "var(--c-mint, #51cf66)";
+  const slow = Math.round(fatigueSpeedLoss(f) * 100);
+  const label = st.resting ? "💤 resting — recovering" : slow > 0 ? `😓 ${Math.round(f)}% tired · −${slow}% speed` : `${Math.round(f)}% tired`;
+  return h("div.xpbar", {}, [bar(f / 100, color, `fatigue:${st.id}`), h("span.small.muted", {}, label)]);
+}
+
+function fatigueSpeedLoss(fatigue: number): number {
+  return TUNING.FATIGUE_SPEED_PENALTY * (Math.max(0, Math.min(100, fatigue)) / 100);
+}
+
+// A hired staffer's card: identity + wage, perks, XP + fatigue meters, and a
+// clean wrapping row of actions (role toggle / rest / train / let go).
+function crewCard(g: GameState, st: GameState["staff"][number]): HTMLElement {
+  const canAffordTrain = g.cash >= TUNING.STAFF_TRAIN_COST;
+  const maxed = st.level >= TUNING.STAFF_MAX_LEVEL;
+  return h("div.crew" + (st.resting ? ".crew--resting" : ""), {}, [
+    h("div.crew__head", {}, [
+      h("span.crew__avatar", {}, st.icon),
+      h("strong.crew__name", {}, [st.name, h("span.lvl", {}, `Lv.${st.level}`)]),
+      h("span.crew__wage", {}, `${moneyWhole(st.wage)}/day`),
+    ]),
+    h("div.small.muted", {}, staffBenefitLeveled(st)),
+    staffXpBar(st),
+    staffFatigueBar(st),
+    h("div.crew__actions", {}, [
+      button(st.role === "MAKE" ? "🫙 Mixing" : "🥤 Serving", () => actions.setStaffRole(st.id, st.role === "MAKE" ? "SERVE" : "MAKE"), {
+        size: "sm",
+        variant: "ghost",
+      }),
+      button(st.resting ? "💤 Resting" : "Rest", () => actions.setStaffResting(st.id, !st.resting), {
+        size: "sm",
+        variant: st.resting ? "sky" : "ghost",
+      }),
+      maxed
+        ? null
+        : button(`Train ${moneyWhole(TUNING.STAFF_TRAIN_COST)}`, () => actions.trainStaff(st.id), {
+            size: "sm",
+            variant: "sky",
+            disabled: !canAffordTrain,
+          }),
+      button("Let go", () => actions.fireStaff(st.id), { size: "sm", variant: "ghost" }),
+    ]),
   ]);
 }
 
 // ---------------------------------------------------------------------------
 function staffContent(g: GameState): Child[] {
   const full = g.staff.length >= TUNING.STAFF_CAP;
-  const canAffordTrain = g.cash >= TUNING.STAFF_TRAIN_COST;
   return [
-    h("p.muted.small", {}, `${g.staff.length}/${TUNING.STAFF_CAP} hired. Each adds a serving station. Crew gains experience daily — train them to level up faster.`),
-    ...g.staff.map((st) =>
-      h("div.shop__row", {}, [
-        h("div.shop__icon", {}, st.icon),
-        h("div.shop__info", {}, [
-          h("strong", {}, [st.name, h("span.lvl", {}, `Lv.${st.level}`), h("span.lvl", {}, `${moneyWhole(st.wage)}/day`)]),
-          h("div.small.muted", {}, staffBenefitLeveled(st)),
-          staffXpBar(st),
-        ]),
-        h("div.shop__action.shop__action--group", {}, [
-          button(st.role === "MAKE" ? "🫙 Mixing" : "🥤 Serving", () => actions.setStaffRole(st.id, st.role === "MAKE" ? "SERVE" : "MAKE"), {
-            size: "sm",
-            variant: "ghost",
-          }),
-          st.level < TUNING.STAFF_MAX_LEVEL
-            ? button(`Train ${moneyWhole(TUNING.STAFF_TRAIN_COST)}`, () => actions.trainStaff(st.id), {
-                size: "sm",
-                variant: "sky",
-                disabled: !canAffordTrain,
-              })
-            : null,
-          button("Let go", () => actions.fireStaff(st.id), { size: "sm", variant: "ghost" }),
-        ]),
-      ]),
-    ),
+    h("p.muted.small", {}, `${g.staff.length}/${TUNING.STAFF_CAP} hired. Each adds a station and trains up daily. Working tires them (slower service) — rest one to recover.`),
+    ...g.staff.map((st) => crewCard(g, st)),
     full
       ? h("p.muted.small", {}, "Your crew is full.")
       : h(

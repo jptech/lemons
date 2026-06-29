@@ -5,8 +5,50 @@
 import type { Condition, ItemId } from "./types";
 
 export const TUNING = {
-  SCHEMA_VERSION: 8,
+  SCHEMA_VERSION: 13,
   STARTING_CASH: 80,
+
+  // --- Rival competitor (Phase L5) ---
+  // A competing stand spawns at a day gate (in campaign AND endless), splits foot
+  // traffic by a price/reputation share model, grows as the player succeeds, and
+  // can be bought out for a temporary reprieve. Bounded so it pressures, not kills.
+  RIVAL_SPAWN_DAY: 14,
+  RIVAL_INIT_STRENGTH: 0.6,
+  RIVAL_MAX_STRENGTH: 1.8,
+  RIVAL_REP_TARGET: 1.0, // rival strength target rises with player rep (success attracts rivals)
+  RIVAL_ADAPT: 0.1, // how fast strength eases toward its target
+  RIVAL_WOBBLE: 0.05, // daily random drift in strength
+  RIVAL_BASE_PULL: 1.2, // the player's baseline competitiveness vs the rival
+  RIVAL_MAX_SHARE: 0.45, // most demand a rival can ever take
+  RIVAL_BUYOUT_BASE: 1500, // cash to buy them out (× (1 + strength))
+  RIVAL_COOLDOWN: 7, // days bought-out before they re-enter (weaker)
+
+  // --- Brand equity / awareness reservoir (Phase L3) ---
+  // A slow stock filled by marketing spend + delighted-customer word-of-mouth,
+  // decaying daily. It multiplies top-of-funnel demand and can push PAST the
+  // reputation ceiling — but the WoM term is flow-fed (∝ yesterday's delighted
+  // count, which is itself demand-capped), so it grows then asymptotes rather
+  // than running away (proven in scripts/awarenessProbe.ts).
+  AWARENESS_GAIN: 0.018, // demand multiplier added per awareness point
+  AWARENESS_CAP_MULT: 2.2, // hard cap on the awareness demand multiplier (safety net)
+  AWARENESS_MAX: 80, // reservoir ceiling (a bit past mult saturation)
+  AWARENESS_DECAY: 0.05, // fraction of the reservoir that leaks per day
+  AWARENESS_WOM: 0.06, // awareness gained per delighted customer (the organic term)
+  AWARENESS_MKT_MAX: 3.0, // max awareness/day from marketing spend (saturating)
+  AWARENESS_MKT_SCALE: 60, // marketing spend scale for the fill curve
+
+  // --- Late-game: Tycoon ladder & Prestige (Phase L1) ---
+  BASE_MENU_CAP: 2, // active products before menu-slot perks
+  // The endless goal ladder activates once the player has cleared this many of
+  // the base campaign goals (≈ early-mid game) — surfaces depth before the win.
+  LADDER_ACTIVATE_GOALS: 3,
+  // Cash → Prestige conversion: an escalating cost per point (pure fn of balance)
+  // so a cash-rich late game has somewhere to pour money. Perks are the sink.
+  PRESTIGE_CONVERT_BASE: 2000, // cash for the first prestige point
+  PRESTIGE_CONVERT_GROWTH: 0.15, // +15% cost per prestige already held
+  // Weekly contracts (Phase L2)
+  CONTRACTS_UNLOCK_DAY: 4, // first contracts appear once the player has footing
+  CONTRACT_ACTIVE_CAP: 2, // how many contracts can be accepted at once
 
   // --- Day structure ---
   CUPS_PER_PITCHER: 8,
@@ -105,7 +147,17 @@ export const TUNING = {
   MKT_REP_SCALE: 60,
 
   // --- Staff ---
-  STAFF_CAP: 3,
+  STAFF_CAP: 5,
+  // Marginal payroll: crews beyond WAGE_MARGINAL_FREE cost a rising premium
+  // (management overhead), so scaling the team isn't free. ≤3 staff is unchanged.
+  WAGE_MARGINAL_FREE: 3,
+  WAGE_MARGINAL_STEP: 0.1, // +10% total payroll per head beyond the free count
+  // Fatigue (Phase L4): staff tire as they work and slow down; resting recovers
+  // them (lost station that day + a reduced retainer wage). Pure/deterministic.
+  FATIGUE_WORK: 8, // fatigue gained per worked day (0..100)
+  FATIGUE_REST: 40, // fatigue recovered per rested day
+  FATIGUE_SPEED_PENALTY: 0.35, // station speed lost at full fatigue (×(1-this))
+  REST_WAGE_FRACTION: 0.5, // wage paid to a resting staffer (a retainer)
   // Staff experience: each day worked earns XP; training buys a chunk of it.
   // Levels are derived from cumulative XP via STAFF_XP_FOR_LEVEL (index = level).
   STAFF_XP_PER_DAY: 12,

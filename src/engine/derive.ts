@@ -124,6 +124,12 @@ export function effectiveStaffBonus(s: Staff): { serve: number; batch: number } 
   };
 }
 
+/** Speed multiplier for a staffer's station given fatigue (1 when fresh, lower
+ *  when tired). Phase L4 — keeps a worn-out crew genuinely worse than a fresh one. */
+export function fatigueMult(fatigue: number): number {
+  return 1 - TUNING.FATIGUE_SPEED_PENALTY * (Math.max(0, Math.min(100, fatigue)) / 100);
+}
+
 /** Slots consumed by the current inventory. */
 export function usedStorage(state: GameState): number {
   let used = 0;

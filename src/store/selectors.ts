@@ -81,6 +81,8 @@ export function projectedCustomers(g: GameState): number {
       tolerance: tol,
       regularsPool: g.regularsPool,
       eventTrafficMult: event?.effect.trafficMult ?? 1,
+      awareness: g.brand?.awareness ?? 0,
+      rivalStrength: g.rival?.active ? g.rival.strength : 0,
     }),
   );
 }

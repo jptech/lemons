@@ -9,6 +9,9 @@ import { clamp } from "./economy";
 import { bulkFactor, unitPrice } from "./supplier";
 import { freshProductState, primaryProductId, productStateOf } from "./menu";
 import { PRODUCT_BY_ID } from "../data/products";
+import { PERK_BY_ID, menuCapFor } from "../data/perks";
+import { CONTRACT_BY_ID, statValue } from "../data/contracts";
+import { rivalBuyoutCost } from "./rival";
 import type {
   GameState,
   InventoryLot,
@@ -66,7 +69,7 @@ export function toggleMenuProduct(state: GameState, product: ProductId): GameSta
     if (state.menu[0] === product) return state; // can't drop the primary
     return { ...state, menu: state.menu.filter((p) => p !== product) };
   }
-  if (state.menu.length >= MENU_CAP) return state;
+  if (state.menu.length >= menuCap(state)) return state;
   // Ensure the product has a state entry.
   const products = state.products[product]
     ? state.products
@@ -74,7 +77,10 @@ export function toggleMenuProduct(state: GameState, product: ProductId): GameSta
   return { ...state, menu: [...state.menu, product], products };
 }
 
-const MENU_CAP = 2;
+/** Active-menu capacity: base cap plus any menu-slot perks (Phase L1). */
+export function menuCap(state: GameState): number {
+  return menuCapFor(state.ownedPerkIds ?? []);
+}
 
 function patchProduct(state: GameState, product: ProductId, patch: Partial<ProductState>): GameState {
   const cur = productStateOf(state, product);
@@ -204,9 +210,23 @@ export function hireStaff(state: GameState, tier: 1 | 2 | 3): GameState {
         role: state.staff.length === 0 ? "MAKE" : "SERVE",
         xp: 0,
         level: 0,
+        fatigue: 0,
+        resting: false,
       },
     ],
   };
+}
+
+/** Plan a staffer to rest the upcoming day (recover fatigue; no station; half
+ *  wage), or cancel that plan. Resets each day after settlement. */
+export function setStaffResting(state: GameState, id: string, resting: boolean): GameState {
+  let changed = false;
+  const staff = state.staff.map((s) => {
+    if (s.id !== id || s.resting === resting) return s;
+    changed = true;
+    return { ...s, resting };
+  });
+  return changed ? { ...state, staff } : state;
 }
 
 /** Pay to train a staff member: a chunk of XP, re-leveling immediately. No-op
@@ -320,6 +340,110 @@ export function repayLoan(state: GameState, amount: number): GameState {
   const a = Math.min(Math.max(0, Math.round(amount)), state.debt, state.cash);
   if (a <= 0) return state;
   return { ...state, debt: round2(state.debt - a), cash: round2(state.cash - a) };
+}
+
+// ---------------------------------------------------------------------------
+// Prestige & perks (Phase L1)
+// ---------------------------------------------------------------------------
+
+export type PerkStatus =
+  | { kind: "owned" }
+  | { kind: "buyable" }
+  | { kind: "tooExpensive" }
+  | { kind: "needsPrev"; prevName: string };
+
+/** Whether a perk can be bought right now (and why not). */
+export function perkStatus(state: GameState, id: string): PerkStatus | null {
+  const def = PERK_BY_ID[id];
+  if (!def) return null;
+  if ((state.ownedPerkIds ?? []).includes(id)) return { kind: "owned" };
+  if (def.prereq && !(state.ownedPerkIds ?? []).includes(def.prereq)) {
+    return { kind: "needsPrev", prevName: PERK_BY_ID[def.prereq]?.name ?? def.prereq };
+  }
+  if (def.cost > (state.prestige ?? 0)) return { kind: "tooExpensive" };
+  return { kind: "buyable" };
+}
+
+/** Spend Prestige on a permanent perk (each unlocks a recurring decision). */
+export function buyPerk(state: GameState, id: string): GameState {
+  if (perkStatus(state, id)?.kind !== "buyable") return state;
+  const def = PERK_BY_ID[id]!;
+  return {
+    ...state,
+    prestige: round2((state.prestige ?? 0) - def.cost),
+    ownedPerkIds: [...(state.ownedPerkIds ?? []), id],
+  };
+}
+
+/** Cash cost of the next single Prestige point given the balance held (pure). */
+export function nextPrestigeCost(state: GameState): number {
+  return Math.round(
+    TUNING.PRESTIGE_CONVERT_BASE * (1 + TUNING.PRESTIGE_CONVERT_GROWTH * (state.prestige ?? 0)),
+  );
+}
+
+/**
+ * Convert cash into up to `n` Prestige points at an escalating per-point cost
+ * (pure function of the running balance). Gives a cash-rich late game a sink.
+ * No-op if the first point is unaffordable.
+ */
+export function convertCashToPrestige(state: GameState, n = 1): GameState {
+  let cash = state.cash;
+  let prestige = state.prestige ?? 0;
+  let bought = 0;
+  for (let i = 0; i < n; i++) {
+    const cost = Math.round(
+      TUNING.PRESTIGE_CONVERT_BASE * (1 + TUNING.PRESTIGE_CONVERT_GROWTH * prestige),
+    );
+    if (cash < cost) break;
+    cash -= cost;
+    prestige += 1;
+    bought++;
+  }
+  if (bought === 0) return state;
+  return { ...state, cash: round2(cash), prestige };
+}
+
+/** Pay to buy out the active rival — they leave for a cooldown, then re-enter
+ *  weaker. No-op if there's no active rival or you can't afford it. */
+export function buyoutRival(state: GameState): GameState {
+  const r = state.rival;
+  if (!r || !r.active) return state;
+  const cost = rivalBuyoutCost(r);
+  if (cost > state.cash) return state;
+  return {
+    ...state,
+    cash: round2(state.cash - cost),
+    rival: { ...r, active: false, cooldownDays: TUNING.RIVAL_COOLDOWN },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Weekly contracts (Phase L2)
+// ---------------------------------------------------------------------------
+
+/** Accept an offered contract: it becomes active with a deadline and a baseline
+ *  snapshot of its tracked stat. No-op if the active slots are full / unknown. */
+export function acceptContract(state: GameState, offerId: string): GameState {
+  const offer = state.contracts.offers.find((o) => o.id === offerId);
+  if (!offer) return state;
+  if (state.contracts.active.length >= TUNING.CONTRACT_ACTIVE_CAP) return state;
+  const def = CONTRACT_BY_ID[offer.defId];
+  if (!def) return state;
+  // challenge: an N-day window [day, day+N-1] (expires when the day passes it).
+  // catering: a single DUE day (day + leadDays) when the cohort arrives.
+  const deadlineDay =
+    def.kind === "challenge" ? state.day + def.days - 1 : state.day + def.leadDays;
+  const baseline = def.kind === "challenge" ? statValue(state, def.stat) : 0;
+  const accepted = { ...offer, acceptedDay: state.day, deadlineDay, baseline };
+  return {
+    ...state,
+    contracts: {
+      ...state.contracts,
+      offers: state.contracts.offers.filter((o) => o.id !== offerId),
+      active: [...state.contracts.active, accepted],
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------

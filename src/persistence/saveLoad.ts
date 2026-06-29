@@ -5,6 +5,7 @@
  */
 import { TUNING, freshProductState, type GameState } from "../engine";
 import { LEGACY_EQUIPMENT_MAP } from "../data/equipment";
+import { backfillLadder } from "../data/goals";
 
 const KEY = "lemonadeLane.save.v1";
 
@@ -90,6 +91,50 @@ const MIGRATIONS: Record<number, (g: any) => GameState> = {
       xp: typeof s.xp === "number" ? s.xp : 0,
       level: typeof s.level === "number" ? s.level : 0,
     })),
+  }),
+  // 8 -> 9: add late-game meta-progression (prestige currency + perks + the
+  // endless ladder). Neutral: backfill perks/prestige, and back-compute the
+  // ladder rung from the loaded state so a rich legacy save neither re-fires old
+  // rungs on its next day nor is denied the Prestige it should already hold.
+  8: (g) => {
+    const owned = Array.isArray(g.ownedPerkIds) ? g.ownedPerkIds : [];
+    const cleared = Array.isArray(g.completedGoalIds) ? g.completedGoalIds.length : 0;
+    let ladderRung = typeof g.ladderRung === "number" ? g.ladderRung : 0;
+    let prestige = typeof g.prestige === "number" ? g.prestige : 0;
+    if (typeof g.ladderRung !== "number" && cleared >= TUNING.LADDER_ACTIVATE_GOALS) {
+      const bf = backfillLadder(g as GameState);
+      ladderRung = bf.ladderRung;
+      prestige = bf.prestige;
+    }
+    return { ...g, ownedPerkIds: owned, ladderRung, prestige };
+  },
+  // 9 -> 10: add weekly contracts. Neutral — start with nothing dealt; the first
+  // offers appear at the contract-unlock day on the next settlement.
+  9: (g) => ({
+    ...g,
+    contracts: g.contracts ?? { lastDealtWeek: -1, offers: [], active: [] },
+  }),
+  // 10 -> 11: add the brand-awareness reservoir at 0. Neutral — awareness 0 is a
+  // demand multiplier of exactly 1, so a loaded save plays identically, then the
+  // reservoir builds from marketing + word-of-mouth (new late-game headroom).
+  10: (g) => ({
+    ...g,
+    brand: g.brand ?? { awareness: 0 },
+  }),
+  // 11 -> 12: backfill staff fatigue/resting (fresh = no penalty). Neutral.
+  11: (g) => ({
+    ...g,
+    staff: (g.staff ?? []).map((s: Record<string, unknown>) => ({
+      ...s,
+      fatigue: typeof s.fatigue === "number" ? s.fatigue : 0,
+      resting: typeof s.resting === "boolean" ? s.resting : false,
+    })),
+  }),
+  // 12 -> 13: add the rival slot (none yet). Neutral — it spawns at the day gate
+  // on a later settlement; rivalStrength 0 is a 1x demand mult until then.
+  12: (g) => ({
+    ...g,
+    rival: g.rival ?? null,
   }),
 };
 
